@@ -352,5 +352,5 @@ This framework provides:
 * Shared utility systems
 * Minimal networking boilerplate
 * Scalable combat scripting
-
+* Code examples can be seen in studio
 Designed for fast iteration while keeping code clean, reusable, and maintainable.
