@@ -1,37 +1,59 @@
-This version follows a strict Text → Code → Text structure. Each explanation is
-kept outside of the code blocks to ensure it is readable and professionally
-formatted for a GitHub README.
+# Modular Combat Framework
 
-⚔️ Modular Combat Framework
+A high-performance, modular combat framework built for **Luau `--!strict`**.
+The system uses an automated **Replicator** and **SkillHandler** to manage networking with minimal setup and clean scalability.
 
-This framework is a high-performance, modular system designed for Luau
---!strict. It uses an automated Replicator and SkillHandler to handle all
-networking with minimal setup.
+---
 
-1. Folder Structure & Naming
+# Folder Structure & Naming
 
-The framework automatically discovers your scripts based on their location and
-specific name prefixes.
+The framework automatically discovers modules based on their **folder location** and **naming convention**.
 
-| Type               | Folder Location                                | Naming Convention            |
-| :----------------- | :--------------------------------------------- | :--------------------------- |
-| **Client Skill**   | `ReplicatedStorage.ClientSkills`               | `C_` + Name (e.g. `C_Punch`) |
-| **Server Skill**   | `ServerScriptService.ServerSkills`             | `S_` + Name (e.g. `S_Punch`) |
-| **Client Utility** | `ReplicatedStorage.Assets.Modules.Client`      | Raw Name (e.g. `Highlight`)  |
-| **Shared Utility** | `ReplicatedStorage.Assets.Modules.Shared.Util` | Raw Name (e.g. `Ragdoll`)    |
+| Type               | Folder Location                                | Naming Convention       |
+| ------------------ | ---------------------------------------------- | ----------------------- |
+| **Client Skill**   | `ReplicatedStorage.ClientSkills`               | `C_` + Name → `C_Punch` |
+| **Server Skill**   | `ServerScriptService.ServerSkills`             | `S_` + Name → `S_Punch` |
+| **Client Utility** | `ReplicatedStorage.Assets.Modules.Client`      | Raw Name → `Highlight`  |
+| **Shared Utility** | `ReplicatedStorage.Assets.Modules.Shared.Util` | Raw Name → `Ragdoll`    |
 
-2. How to Create a Skill
+---
 
-Every skill requires a paired Server and Client module. For a skill named
-"Punch," you would create the following:
+# Creating a Skill
 
-The Server Module (S_Punch)
+Every skill requires:
 
-This module lives in ServerSkills. It handles the game logic, such as hitboxes
-and damage. When the logic is finished, it tells the clients to play visuals.
+* A **Server Module**
+* A **Client Module**
 
+For a skill named **Punch**, create:
+
+* `S_Punch`
+* `C_Punch`
+
+---
+
+## Server Module — `S_Punch`
+
+Located in:
+
+```txt
+ServerScriptService.ServerSkills
+```
+
+Responsible for:
+
+* Hitboxes
+* Damage
+* Validation
+* Server-side combat logic
+
+After the logic completes, the server replicates visuals to clients.
+
+```lua
 --!strict
+
 type Character = Model
+
 local Packets = require(game.ReplicatedStorage.Remotes.Packets)
 local Packet = Packets.ReplicateRemote
 
@@ -39,86 +61,296 @@ local module = {}
 
 function module.Activate(char: Character, extra: any)
     print("Server logic running...")
-    
-    -- Tell all clients to run the "Effects" function in the C_Punch module
-    Packet:Fire(char, {Skill = "Punch", Function = "Effects"}, {Type = "Standard"})
+
+    -- Tell all clients to run the "Effects" function in C_Punch
+    Packet:Fire(
+        char,
+        {
+            Skill = "Punch",
+            Function = "Effects"
+        },
+        {
+            Type = "Standard"
+        }
+    )
 end
 
 return module
+```
 
-The Client Module (C_Punch)
+---
 
-This module lives in ClientSkills. It handles the player's input and the visual
-effects for everyone in the game.
+## Client Module — `C_Punch`
 
+Located in:
+
+```txt
+ReplicatedStorage.ClientSkills
+```
+
+Responsible for:
+
+* Player input
+* Animations
+* Camera effects
+* Particles
+* Client visuals
+
+```lua
 --!strict
+
 type Character = Model
-type EffectArgs = { Character: Character, [string]: any }
+
+type EffectArgs = {
+    Character: Character,
+    [string]: any
+}
 
 local Packets = require(game.ReplicatedStorage.Remotes.Packets)
 local Packet = Packets.ServerRemote
 
 local module = {}
 
--- Triggered by your Tool or Input script to start the attack
+-- Triggered by input/tool scripts
 function module.Start(char: Character)
-    Packet:Fire(char, {Skill = "Punch", Function = "Activate"}, {})
+    Packet:Fire(
+        char,
+        {
+            Skill = "Punch",
+            Function = "Activate"
+        },
+        {}
+    )
 end
 
--- Triggered by the Replicator to play visuals
+-- Triggered by the Replicator
 function module.Effects(args: any)
-    local data = args :: EffectArgs -- Use type casting for autocomplete
+    local data = args :: EffectArgs
+
     print("Playing visuals for: " .. data.Character.Name)
 end
 
 return module
+```
 
-3. How to Create a Utility (Key)
+---
 
-Utilities are prefix-free modules used for shared effects like Highlights or
-Camera Shakes. They do not require a specific "Skill" script to run.
+# Creating a Utility (Key)
 
-To use a utility, place your module in Assets.Modules.Client or Shared.Util and
-call it from the server using the Key parameter.
+Utilities are **prefix-free shared modules**.
 
--- Firing a shared utility directly from the server
-Packet:Fire(char, {Key = "Highlight", Function = "Create"}, {Color = Color3.new(1,0,0)})
+They are used for reusable systems such as:
 
-4. How to Fire the Framework
+* Highlights
+* Camera Shake
+* VFX
+* Ragdolls
+* Sound Systems
 
-You trigger the system by firing a packet with the following signature:
-Packet:Fire(Character, Params, ExtraData).
+Utilities do **not** require a matching Skill module.
 
-Character: The Model performing the action.
-Params: A table containing:
+---
 
-  - Skill: The name of the skill (looks for C_ or S_ modules).
-  - Key: The name of a utility (looks for raw module names).
-  - Function: The specific function name to execute.
+## Example Utility Call
 
-ExtraData: A table {} containing any dynamic data like damage values or effect
-types.
+Place the module inside:
 
-5. Critical Rules for Developers
+```txt
+Assets.Modules.Client
+```
 
-1. Character Injection
-You do not need to manually pass the character inside your ExtraData table. The
-Client Replicator automatically inserts the character into the arguments as
-args["Character"].
+or
 
-2. Strict Casting
-To get full Luau autocomplete and prevent errors in your Effects functions,
-always cast the arguments at the top of the function:
+```txt
+Assets.Modules.Shared.Util
+```
 
+Then fire it directly from the server:
+
+```lua
+Packet:Fire(
+    char,
+    {
+        Key = "Highlight",
+        Function = "Create"
+    },
+    {
+        Color = Color3.new(1, 0, 0)
+    }
+)
+```
+
+---
+
+# Firing the Framework
+
+All networking follows the same structure:
+
+```lua
+Packet:Fire(Character, Params, ExtraData)
+```
+
+---
+
+## Parameter Breakdown
+
+### `Character`
+
+The `Model` performing the action.
+
+---
+
+### `Params`
+
+Defines what module/function should run.
+
+```lua
+{
+    Skill = "Punch",
+    Function = "Activate"
+}
+```
+
+or
+
+```lua
+{
+    Key = "Highlight",
+    Function = "Create"
+}
+```
+
+---
+
+### `ExtraData`
+
+Dynamic runtime data.
+
+```lua
+{
+    Damage = 15,
+    Type = "Heavy"
+}
+```
+
+If no extra data exists:
+
+```lua
+{}
+```
+
+---
+
+# Developer Rules
+
+---
+
+## 1. Character Injection
+
+You do **not** need to manually include the character inside `ExtraData`.
+
+The Replicator automatically injects:
+
+```lua
+args.Character
+```
+
+Example:
+
+```lua
+function module.Effects(args)
+    print(args.Character.Name)
+end
+```
+
+---
+
+## 2. Strict Casting
+
+For proper Luau autocomplete and type safety, cast your arguments immediately.
+
+```lua
 local data = args :: EffectArgs
+```
 
-3. Placeholder Tables
-The networking library is strict. If you have no extra data to send, you must
-pass an empty table {} as the 3rd argument. Passing nil will cause the packet to
-fail.
+Recommended structure:
 
-4. Skills vs. Keys
+```lua
+type EffectArgs = {
+    Character: Character,
+    [string]: any
+}
+```
 
-  - Use Skill: For logic unique to a specific ability (e.g., Punch, Kick).
-  - Use Key: For shared systems used by multiple different skills (e.g., VFX,
-    CameraShake, Ragdoll).
+---
+
+## 3. Placeholder Tables
+
+The networking layer is strict.
+
+Always pass a table for `ExtraData`.
+
+Correct:
+
+```lua
+Packet:Fire(char, params, {})
+```
+
+Incorrect:
+
+```lua
+Packet:Fire(char, params, nil)
+```
+
+Passing `nil` can cause replication failure.
+
+---
+
+## 4. Skills vs Keys
+
+### Use `Skill`
+
+For unique combat abilities:
+
+* Punch
+* Kick
+* Dash
+* Slam
+
+```lua
+{
+    Skill = "Punch"
+}
+```
+
+---
+
+### Use `Key`
+
+For reusable shared systems:
+
+* CameraShake
+* Highlight
+* Ragdoll
+* VFX
+
+```lua
+{
+    Key = "Highlight"
+}
+```
+
+---
+
+# Summary
+
+This framework provides:
+
+* Modular architecture
+* Automatic replication
+* Strict Luau support
+* Shared utility systems
+* Minimal networking boilerplate
+* Scalable combat scripting
+
+Designed for fast iteration while keeping code clean, reusable, and maintainable.
