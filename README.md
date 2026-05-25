@@ -165,8 +165,8 @@ or
 Assets.Modules.Shared.Util
 ```
 
-Then fire it directly from the server:
-
+Then fire it directly from the server ( recommended use ):
+( using from client will result in lag )
 ```lua
 Packet:Fire(
     char,
