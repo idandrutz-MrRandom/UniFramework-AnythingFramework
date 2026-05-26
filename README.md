@@ -257,7 +257,7 @@ tool.Activated:Connect(function()
     C_Punch.Start(char)
 end)
 ```
-
+Again, you can still call the module from any local method possible; such as input systems tools and etc, as long as you properly require the client module from the starting input, you are good to go.
 ---
 
 ### Server Module (`S_`)
@@ -348,6 +348,6 @@ Both `UniHandler` and `UniReplicator` cache `require` results by module name. A 
 
 - Module names must be **unique** within their search paths. The framework uses the first match it finds.
 - `params.Module` takes priority over `params.Utility` if both keys are present.
-- Functions run inside `task.spawn`, so errors won't surface to the caller — use `warn` or a logging utility inside your functions.
+- Functions run inside `task.spawn`, so errors won't surface to the caller — use `warn` or a logging utility inside your functions - in works.
 - `extraData` / `data` defaults to `{}` if not provided in the `Fire` call.
-- The framework does **not** verify that the firing player owns the `Character` they pass. Add your own check in `S_` modules where it matters: `Players:GetPlayerFromCharacter(Character) == player`.
+- The framework does **not** verify that the firing player owns the `Character` they pass. Add your own check in `S_` modules where it matters: `Players:GetPlayerFromCharacter(Character) == player`,Why? because this system can also work for npcs.
