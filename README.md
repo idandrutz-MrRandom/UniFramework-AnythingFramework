@@ -18,7 +18,7 @@ UniFramework handles the plumbing for this pattern — a single shared remote in
                    [UniReplicator] → finds C_Punch → C_Punch.Effects(args)
                         └─► renders confirmed effect on all clients
 ```
-
+-Do note, you can start a module from the server! just make sure not to run effects on there, and if you want to run effects, then replicate it to the clients!
 ---
 
 ## Architecture
@@ -351,5 +351,6 @@ Both `UniHandler` and `UniReplicator` cache `require` results by module name. A 
 - Functions run inside `task.spawn`, so errors won't surface to the caller — use `warn` or a logging utility inside your functions - in works.
 - `extraData` / `data` defaults to `{}` if not provided in the `Fire` call.
 - The framework does **not** verify that the firing player owns the `Character` they pass. Add your own check in `S_` modules where it matters: `Players:GetPlayerFromCharacter(Character) == player`,Why? because this system can also work for npcs.
+- I will be pushing updates for those things: Rollback ( missprediction rollback for things like animations! ), optimizations, qol and more details on the docs!
 ### Credits:
 https://devforum.roblox.com/t/packet-networking-library/3573907?page=4 -- Thanks to suphi for Packets ( required for use )
