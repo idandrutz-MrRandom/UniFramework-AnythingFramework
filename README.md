@@ -34,25 +34,61 @@ Client calls Packet:Fire(char, { Module = "Punch", Function = "Activate" })
 
 ### 1. Folder Structure
 
-Ensure the following paths exist in your game:
+The framework doesn't enforce a rigid folder structure — as long as your paths are registered in `Configuration`, the framework will find your modules. Below is the **recommended reference setup** that works out of the box:
 
 ```
 ReplicatedStorage/
 ├── Assets/
 │   └── Modules/
-│       ├── Configuration    ← shared config module
+│       ├── Configuration        ← shared config module
 │       ├── Shared/
-│       │   └── Util/        ← utility modules (both sides)
+│       │   └── Util/            ← utility modules accessible by both sides
 │       ├── Server/
-│       │   └── Util/        ← server-only utilities
+│       │   └── Util/            ← server-only utility modules
 │       └── Client/
-│           └── Util/        ← client-only utilities
-├── Remotes/
-│   └── Packets              ← shared Packets module
-└── ClientSkills/            ← C_ modules go here
+│           └── Util/            ← client-only utility modules
+├── ClientSkills/
+│   └── Base/
+│       └── Punch/
+│           └── C_Punch          ← client skill module
+├── Data/                        ← optional data storage folder
+└── Remotes/
+    └── Packets                  ← shared Packets module
 
 ServerScriptService/
-└── ServerSkills/            ← S_ modules go here
+├── CharacterClass/              ← optional character data/classes
+├── ServerLogic/
+│   └── Script                   ← your main server script
+├── ServerSkills/
+│   └── Punch/
+│       └── S_Punch              ← server skill module
+└── SkillHandler/
+    └── UniHandler               ← server dispatcher (ModuleScript or Script)
+
+StarterPlayer/
+└── StarterPlayerScripts/
+    └── Controllers/
+        ├── MovementController   ← example controller
+        └── UniReplicator        ← client dispatcher (LocalScript)
+```
+
+> **This is just one way to organize your project.** The only hard requirements are that `UniHandler` runs on the server and `UniReplicator` runs as a LocalScript. Everything else — where skill folders live, how deep you nest them, whether you group skills by name or type — is up to you, as long as the paths are listed in `Configuration`.
+
+Skill modules can be organized however you like inside their container folder. Flat or nested — the recursive search handles it either way:
+
+```
+-- Flat
+ServerSkills/
+├── S_Punch
+├── S_Kick
+└── S_Block
+
+-- Nested by skill name (as in the reference setup)
+ServerSkills/
+├── Punch/
+│   └── S_Punch
+└── Kick/
+    └── S_Kick
 ```
 
 ### 2. Naming Convention
@@ -69,18 +105,27 @@ The framework resolves modules by name with a required prefix:
 
 ### 3. Configuration
 
-`Configuration` declares the search paths. By default:
+`Configuration` is where you declare all search paths. The reference setup registers these by default:
 
 - **`ServerModulePaths`** → `ServerScriptService/ServerSkills`
 - **`ClientModulePaths`** → `ReplicatedStorage/ClientSkills`
-- **`UtilityPaths`** → `ReplicatedStorage/Assets/Modules/Shared/Util` + side-specific util folder
+- **`UtilityPaths`** → `ReplicatedStorage/Assets/Modules/Shared/Util` + the side-specific `Util` folder
 
-To add more containers, edit `Configuration`:
+Since paths are just tables of `Instance` references, you can point them anywhere. Want to split skills across multiple folders, or rename everything? Just update `Configuration`:
 
 ```lua
--- Add a new folder of server modules
-table.insert(Configuration.ServerModulePaths, ServerScriptService:WaitForChild("MyNewSkills"))
+-- Add an extra container for server modules
+table.insert(Configuration.ServerModulePaths, ServerScriptService:WaitForChild("CombatSkills"))
+table.insert(Configuration.ServerModulePaths, ServerScriptService:WaitForChild("MovementSkills"))
+
+-- Add an extra container for client modules
+table.insert(Configuration.ClientModulePaths, ReplicatedStorage:WaitForChild("UISkills"))
+
+-- Add a shared utility folder from somewhere else entirely
+table.insert(Configuration.UtilityPaths, ReplicatedStorage:WaitForChild("SharedHelpers"))
 ```
+
+The framework searches all registered paths recursively, so sub-folders work automatically — no extra registration needed.
 
 ---
 
