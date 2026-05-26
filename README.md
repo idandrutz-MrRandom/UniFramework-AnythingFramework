@@ -16,6 +16,9 @@ The framework automatically discovers modules based on their **folder location**
 | **Client Utility** | `ReplicatedStorage.Assets.Modules.Client`      | Raw Name → `Highlight`  |
 | **Shared Utility** | `ReplicatedStorage.Assets.Modules.Shared.Util` | Raw Name → `Ragdoll`    |
 
+*Example of how the order should look for it to work:
+![Uploading image.png…]()
+
 ---
 
 # Creating a Skill
@@ -354,3 +357,4 @@ This framework provides:
 * Scalable combat scripting
 * Code examples can be seen in studio
 Designed for fast iteration while keeping code clean, reusable, and maintainable.
+
