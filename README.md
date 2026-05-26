@@ -20,6 +20,53 @@ The framework automatically discovers modules based on their **folder location**
 ![Uploading image.png…]()
 
 ---
+# We here are using the Packets Networking library made by Suphi!, and because of that we set it up like this:
+```lua
+--!strict
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Packet = require(ReplicatedStorage.Assets.Modules.Shared.Util.MainModule)
+
+-- We define the type directly in the function signature to force the dropdown hints
+type PacketObject = {
+	Fire: (
+		self: any, 
+		Character: Model, 
+		Params: {
+			Skill: string?, 
+			Key: string?, 
+			Function: string
+		}, 
+		Data: any
+	) -> (),
+	FireClient: (
+		self: any,
+		Player : Player,
+		Character: Model, 
+		Params: {
+			Skill: string?, 
+			Key: string ?, 
+			Function: string
+		}, 
+		Data: any
+	) -> (),
+	OnServerEvent: any,
+	OnClientEvent: any
+}
+
+local Packets = {
+	EquipEvent = Packet("EquipEvent", Packet.String, Packet.String, Packet.Any),
+	CooldownSync = Packet("CooldownSync", Packet.Any, Packet.Any, Packet.Any),
+
+	-- Cast to the specific PacketObject type
+	ServerRemote = Packet("ServerRemote", Packet.Instance, Packet.Any, Packet.Any) :: PacketObject,
+	ReplicateRemote = Packet("ReplicateRemote", Packet.Instance, Packet.Any, Packet.Any) :: PacketObject,
+
+	RagdollRemote = Packet("RagdollRemote", Packet.Instance, Packet.Any)
+}
+
+return Packets
+```
+this allows us to optimize the game while keeping the simplicity / typechecking while keeping it readable and easy to manipulate!
 
 # Creating a Skill
 
@@ -358,3 +405,5 @@ This framework provides:
 * Code examples can be seen in studio
 Designed for fast iteration while keeping code clean, reusable, and maintainable.
 
+# Any other info can be found in the Luau scripts given above.
+*ENJOY!
