@@ -1,4 +1,4 @@
-# Modular Combat Framework
+# Modular Combat Framework - Can Work for non Combat scenarios too!
 
 A high-performance, modular combat framework built for **Luau `--!strict`**.
 The system uses an automated **Replicator** and **SkillHandler** to manage networking with minimal setup and clean scalability.
