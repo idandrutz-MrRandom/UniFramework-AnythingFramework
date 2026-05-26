@@ -87,7 +87,7 @@ For a skill named **Punch**, create:
 Located in:
 
 ```txt
-ServerScriptService.ServerSkills
+ServerScriptService.ServerSkills... ( anything under it will still be recognized by name - it does mean you cannot name 2 skills the same! )
 ```
 
 Responsible for:
@@ -135,7 +135,7 @@ return module
 Located in:
 
 ```txt
-ReplicatedStorage.ClientSkills
+ReplicatedStorage.ClientSkills... ( same as server )
 ```
 
 Responsible for:
@@ -215,8 +215,8 @@ or
 Assets.Modules.Shared.Util
 ```
 
-Then fire it directly from the server ( recommended use ):
-( using from client will result in lag )
+Then fire it directly from the server ( recommended use ---> using from client will result in lag ):
+
 ```lua
 Packet:Fire(
     char,
@@ -318,6 +318,7 @@ end
 ## 2. Strict Casting
 
 For proper Luau autocomplete and type safety, cast your arguments immediately.
+it indeed means that it will be harder to write, but its worth it - "it will pay off" By Sinek*
 
 ```lua
 local data = args :: EffectArgs
@@ -406,4 +407,4 @@ This framework provides:
 Designed for fast iteration while keeping code clean, reusable, and maintainable.
 
 # Any other info can be found in the Luau scripts given above.
-*ENJOY!
+ENJOY!
