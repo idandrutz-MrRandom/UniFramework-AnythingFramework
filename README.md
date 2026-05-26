@@ -1,411 +1,292 @@
-# Modular Combat Framework - Can Work for non Combat scenarios too!
+# UniFramework
 
-A high-performance, modular combat framework built for **Luau `--!strict`**.
-The system uses an automated **Replicator** and **SkillHandler** to manage networking with minimal setup and clean scalability.
-
----
-
-# Folder Structure & Naming
-
-The framework automatically discovers modules based on their **folder location** and **naming convention**.
-
-| Type               | Folder Location                                | Naming Convention       |
-| ------------------ | ---------------------------------------------- | ----------------------- |
-| **Client Skill**   | `ReplicatedStorage.ClientSkills`               | `C_` + Name → `C_Punch` |
-| **Server Skill**   | `ServerScriptService.ServerSkills`             | `S_` + Name → `S_Punch` |
-| **Client Utility** | `ReplicatedStorage.Assets.Modules.Client`      | Raw Name → `Highlight`  |
-| **Shared Utility** | `ReplicatedStorage.Assets.Modules.Shared.Util` | Raw Name → `Ragdoll`    |
-
-*Example of how the order should look for it to work:
-![Uploading image.png…]()
+A lightweight, convention-based remote dispatch framework for Roblox — built around a unified packet system that routes client and server actions through named modules with zero boilerplate.
 
 ---
-# We here are using the Packets Networking library made by Suphi!, and because of that we set it up like this:
-```lua
---!strict
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Packet = require(ReplicatedStorage.Assets.Modules.Shared.Util.MainModule)
 
--- We define the type directly in the function signature to force the dropdown hints
-type PacketObject = {
-	Fire: (
-		self: any, 
-		Character: Model, 
-		Params: {
-			Skill: string?, 
-			Key: string?, 
-			Function: string
-		}, 
-		Data: any
-	) -> (),
-	FireClient: (
-		self: any,
-		Player : Player,
-		Character: Model, 
-		Params: {
-			Skill: string?, 
-			Key: string ?, 
-			Function: string
-		}, 
-		Data: any
-	) -> (),
-	OnServerEvent: any,
-	OnClientEvent: any
-}
+## Overview
 
-local Packets = {
-	EquipEvent = Packet("EquipEvent", Packet.String, Packet.String, Packet.Any),
-	CooldownSync = Packet("CooldownSync", Packet.Any, Packet.Any, Packet.Any),
+UniFramework eliminates the need to manually wire up RemoteEvents per feature. Instead, you define **server modules** (`S_`) and **client modules** (`C_`) following a naming convention, and the framework automatically discovers, requires, and dispatches calls to the correct function — all through a single shared remote infrastructure.
 
-	-- Cast to the specific PacketObject type
-	ServerRemote = Packet("ServerRemote", Packet.Instance, Packet.Any, Packet.Any) :: PacketObject,
-	ReplicateRemote = Packet("ReplicateRemote", Packet.Instance, Packet.Any, Packet.Any) :: PacketObject,
-
-	RagdollRemote = Packet("RagdollRemote", Packet.Instance, Packet.Any)
-}
-
-return Packets
 ```
-this allows us to optimize the game while keeping the simplicity / typechecking while keeping it readable and easy to manipulate!
-
-# Creating a Skill
-
-Every skill requires:
-
-* A **Server Module**
-* A **Client Module**
-
-For a skill named **Punch**, create:
-
-* `S_Punch`
-* `C_Punch`
-
----
-
-## Server Module — `S_Punch`
-
-Located in:
-
-```txt
-ServerScriptService.ServerSkills... ( anything under it will still be recognized by name - it does mean you cannot name 2 skills the same! )
+Client calls Packet:Fire(char, { Module = "Punch", Function = "Activate" })
+         └─► UniHandler receives it on the server
+               └─► finds S_Punch, calls S_Punch.Activate(Character, data, player)
+                     └─► server fires ReplicateRemote
+                           └─► UniReplicator receives it on the client
+                                 └─► finds C_Punch, calls C_Punch.Effects(args)
 ```
 
-Responsible for:
+---
 
-* Hitboxes
-* Damage
-* Validation
-* Server-side combat logic
+## Architecture
 
-After the logic completes, the server replicates visuals to clients.
+| Module | Type | Location | Role |
+|---|---|---|---|
+| `UniHandler` | Server Script | ServerScriptService | Listens for `ServerRemote`, dispatches to `S_` modules |
+| `UniReplicator` | Local Script | StarterPlayerScripts (or similar) | Listens for `ReplicateRemote`, dispatches to `C_` modules |
+| `Packets` | Shared ModuleScript | ReplicatedStorage/Remotes | Defines and wraps the two remotes |
+| `Configuration` | Shared ModuleScript | ReplicatedStorage/Assets/Modules | Declares where modules and utilities live |
+
+---
+
+## Setup
+
+### 1. Folder Structure
+
+Ensure the following paths exist in your game:
+
+```
+ReplicatedStorage/
+├── Assets/
+│   └── Modules/
+│       ├── Configuration    ← shared config module
+│       ├── Shared/
+│       │   └── Util/        ← utility modules (both sides)
+│       ├── Server/
+│       │   └── Util/        ← server-only utilities
+│       └── Client/
+│           └── Util/        ← client-only utilities
+├── Remotes/
+│   └── Packets              ← shared Packets module
+└── ClientSkills/            ← C_ modules go here
+
+ServerScriptService/
+└── ServerSkills/            ← S_ modules go here
+```
+
+### 2. Naming Convention
+
+The framework resolves modules by name with a required prefix:
+
+| Module Type | Prefix | Example |
+|---|---|---|
+| Server-side logic | `S_` | `S_Punch` |
+| Client-side logic | `C_` | `C_Punch` |
+| Utilities (both sides) | *(none)* | `Highlight` |
+
+> Modules are discovered by recursively searching the configured paths. You don't need to register them manually.
+
+### 3. Configuration
+
+`Configuration` declares the search paths. By default:
+
+- **`ServerModulePaths`** → `ServerScriptService/ServerSkills`
+- **`ClientModulePaths`** → `ReplicatedStorage/ClientSkills`
+- **`UtilityPaths`** → `ReplicatedStorage/Assets/Modules/Shared/Util` + side-specific util folder
+
+To add more containers, edit `Configuration`:
 
 ```lua
+-- Add a new folder of server modules
+table.insert(Configuration.ServerModulePaths, ServerScriptService:WaitForChild("MyNewSkills"))
+```
+
+---
+
+## Packet API
+
+All communication goes through `Packets`, which exposes two remotes:
+
+```lua
+local Packets = require(ReplicatedStorage.Remotes.Packets)
+
+-- Client → Server
+Packets.ServerRemote:Fire(Character, Params, Data?)
+
+-- Server → All clients (broadcast)
+Packets.ReplicateRemote:Fire(Character, Params, Data?)
+
+-- Server → Specific client
+Packets.ReplicateRemote:FireClient(Player, Character, Params, Data?)
+```
+
+### `Params` type
+
+```lua
+type Params = {
+    Module: string?,   -- name of an S_ or C_ module (without the prefix)
+    Utility: string?,  -- name of a utility module (no prefix)
+    Function: string,  -- the function to call on the resolved module
+}
+```
+
+One of `Module` or `Utility` must be provided. `Module` takes priority.
+
+### `Character` type
+
+`Character` is a `Model` — typically the player's character model. It is always passed as the first argument.
+
+---
+
+## Writing Modules
+
+### Server Module (`S_`)
+
+Place in `ServerScriptService/ServerSkills/`. Name must start with `S_`.
+
+```lua
+-- S_Punch (ServerScriptService/ServerSkills/S_Punch)
 --!strict
-
-type Character = Model
-
 local Packets = require(game.ReplicatedStorage.Remotes.Packets)
-local Packet = Packets.ReplicateRemote
 
 local module = {}
 
-function module.Activate(char: Character, extra: any)
-    print("Server logic running...")
+module.Activate = function(Character: Packets.Character, data: any, player: Player)
+    -- Character: the Model passed from the client
+    -- data:      the extraData table from the client fire
+    -- player:    the Player who fired the remote
 
-    -- Tell all clients to run the "Effects" function in C_Punch
-    Packet:Fire(
-        char,
-        {
-            Skill = "Punch",
-            Function = "Effects"
-        },
-        {
-            Type = "Standard"
-        }
-    )
+    warn("Punch activated by:", Character.Name)
+
+    -- Broadcast effect to all clients
+    Packets.ReplicateRemote:Fire(Character, { Module = "Punch", Function = "Effects" }, {
+        Type = "Highlight"
+    })
+
+    -- Or send only to the acting player
+    Packets.ReplicateRemote:FireClient(player, Character, { Module = "Punch", Function = "Effects" }, {
+        Type = "Highlight"
+    })
 end
 
 return module
 ```
 
----
-
-## Client Module — `C_Punch`
-
-Located in:
-
-```txt
-ReplicatedStorage.ClientSkills... ( same as server )
+**Server function signature:**
+```lua
+function(Character: Model, data: any, player: Player)
 ```
 
-Responsible for:
+---
 
-* Player input
-* Animations
-* Camera effects
-* Particles
-* Client visuals
+### Client Module (`C_`)
+
+Place in `ReplicatedStorage/ClientSkills/`. Name must start with `C_`.
 
 ```lua
+-- C_Punch (ReplicatedStorage/ClientSkills/C_Punch)
 --!strict
-
-type Character = Model
-
-type EffectArgs = {
-    Character: Character,
-    [string]: any
-}
-
 local Packets = require(game.ReplicatedStorage.Remotes.Packets)
-local Packet = Packets.ServerRemote
 
 local module = {}
 
--- Triggered by input/tool scripts
-function module.Start(char: Character)
-    Packet:Fire(
-        char,
-        {
-            Skill = "Punch",
-            Function = "Activate"
-        },
-        {}
-    )
+-- Called locally to fire a server action
+module.Start = function(char: Packets.Character)
+    Packets.ServerRemote:Fire(char, { Module = "Punch", Function = "Activate" })
 end
 
--- Triggered by the Replicator
-function module.Effects(args: any)
-    local data = args :: EffectArgs
-
-    print("Playing visuals for: " .. data.Character.Name)
+-- Called by UniReplicator when the server replicates an effect
+-- args.Character is automatically injected by UniReplicator
+module.Effects = function(args: Packets.Args)
+    if args.Type == "Highlight" then
+        -- apply visual effect on args.Character
+    end
 end
 
 return module
 ```
 
----
+**Client replicated function signature:**
+```lua
+function(args: { Character: Model, [any]: any })
+```
 
-# Creating a Utility (Key)
-
-Utilities are **prefix-free shared modules**.
-
-They are used for reusable systems such as:
-
-* Highlights
-* Camera Shake
-* VFX
-* Ragdolls
-* Sound Systems
-
-Utilities do **not** require a matching Skill module.
+> `Character` is automatically injected into the `args` table by `UniReplicator` — you don't need to pass it separately.
 
 ---
 
-## Example Utility Call
+### Utility Module
 
-Place the module inside:
-
-```txt
-Assets.Modules.Client
-```
-
-or
-
-```txt
-Assets.Modules.Shared.Util
-```
-
-Then fire it directly from the server ( recommended use ---> using from client will result in lag ):
+Place in any path listed under `UtilityPaths`. No prefix required.
 
 ```lua
-Packet:Fire(
-    char,
-    {
-        Key = "Highlight",
-        Function = "Create"
-    },
-    {
-        Color = Color3.new(1, 0, 0)
-    }
-)
+-- Highlight (ReplicatedStorage/Assets/Modules/Shared/Util/Highlight)
+local module = {}
+
+module.Create = function(config: { Character: Model, Color: Color3, Transparency: number, FadeDuration: number })
+    -- apply highlight to config.Character
+end
+
+return module
+```
+
+Reference via `Utility` in params:
+
+```lua
+-- This would call Highlight.Create(...) on whichever side handles the packet
+Packets.ReplicateRemote:Fire(char, { Utility = "Highlight", Function = "Create" }, { ... })
 ```
 
 ---
 
-# Firing the Framework
+## Full Example: Punch Skill
 
-All networking follows the same structure:
+### 1. Player activates the skill (client)
 
 ```lua
-Packet:Fire(Character, Params, ExtraData)
+local Packets = require(ReplicatedStorage.Remotes.Packets)
+local char = game.Players.LocalPlayer.Character
+
+-- Fires ServerRemote → UniHandler → S_Punch.Activate
+Packets.ServerRemote:Fire(char, { Module = "Punch", Function = "Activate" })
 ```
 
----
-
-## Parameter Breakdown
-
-### `Character`
-
-The `Model` performing the action.
-
----
-
-### `Params`
-
-Defines what module/function should run.
+### 2. Server processes and replicates (`S_Punch`)
 
 ```lua
-{
-    Skill = "Punch",
-    Function = "Activate"
-}
+module.Activate = function(Character, data, player)
+    -- game logic here ...
+
+    -- Replicate visual effect to all clients
+    Packets.ReplicateRemote:Fire(Character, { Module = "Punch", Function = "Effects" }, {
+        Type = "Highlight"
+    })
+end
 ```
 
-or
+### 3. Client renders the effect (`C_Punch`)
 
 ```lua
-{
-    Key = "Highlight",
-    Function = "Create"
-}
-```
-
----
-
-### `ExtraData`
-
-Dynamic runtime data.
-
-```lua
-{
-    Damage = 15,
-    Type = "Heavy"
-}
-```
-
-If no extra data exists:
-
-```lua
-{}
-```
-
----
-
-# Developer Rules
-
----
-
-## 1. Character Injection
-
-You do **not** need to manually include the character inside `ExtraData`.
-
-The Replicator automatically injects:
-
-```lua
-args.Character
-```
-
-Example:
-
-```lua
-function module.Effects(args)
-    print(args.Character.Name)
+-- UniReplicator calls this automatically, injecting args.Character
+module.Effects = function(args)
+    if args.Type == "Highlight" then
+        highlight.Create({ Character = args.Character, Color = Color3.fromRGB(255, 0, 0), ... })
+    end
 end
 ```
 
 ---
 
-## 2. Strict Casting
+## How Dispatch Works Internally
 
-For proper Luau autocomplete and type safety, cast your arguments immediately.
-it indeed means that it will be harder to write, but its worth it - "it will pay off" By Sinek*
+### UniHandler (server)
 
-```lua
-local data = args :: EffectArgs
-```
+1. Listens on `Packets.ServerRemote.OnServerEvent`
+2. Reads `params.Module` or `params.Utility` to get the module name
+3. If `Module` → searches `ServerModulePaths` for `S_<name>`; if `Utility` → searches `UtilityPaths` for `<name>`
+4. Requires the module (cached after first require)
+5. Calls `module[params.Function](Character, extraData, player)` via `task.spawn`
 
-Recommended structure:
+### UniReplicator (client)
 
-```lua
-type EffectArgs = {
-    Character: Character,
-    [string]: any
-}
-```
-
----
-
-## 3. Placeholder Tables
-
-The networking layer is strict.
-
-Always pass a table for `ExtraData`.
-
-Correct:
-
-```lua
-Packet:Fire(char, params, {})
-```
-
-Incorrect:
-
-```lua
-Packet:Fire(char, params, nil)
-```
-
-Passing `nil` can cause replication failure.
+1. Listens on `Packets.ReplicateRemote.OnClientEvent`
+2. Same lookup logic, but searches `ClientModulePaths` for `C_<name>`
+3. Injects `Character` into the `extraData` table automatically
+4. Calls `module[params.Function](extraData)` via `task.spawn`
 
 ---
 
-## 4. Skills vs Keys
+## Module Caching
 
-### Use `Skill`
-
-For unique combat abilities:
-
-* Punch
-* Kick
-* Dash
-* Slam
-
-```lua
-{
-    Skill = "Punch"
-}
-```
+Both `UniHandler` and `UniReplicator` cache required modules by name after the first load. Modules are only `require`d once per session — subsequent dispatches to the same module reuse the cached result.
 
 ---
 
-### Use `Key`
+## Notes & Limitations
 
-For reusable shared systems:
-
-* CameraShake
-* Highlight
-* Ragdoll
-* VFX
-
-```lua
-{
-    Key = "Highlight"
-}
-```
-
----
-
-# Summary
-
-This framework provides:
-
-* Modular architecture
-* Automatic replication
-* Strict Luau support
-* Shared utility systems
-* Minimal networking boilerplate
-* Scalable combat scripting
-* Code examples can be seen in studio
-Designed for fast iteration while keeping code clean, reusable, and maintainable.
-
-# Any other info can be found in the Luau scripts given above.
-ENJOY!
-P.S: If the system doesnt work, double check that you require the skillhandler and Packets wrapper on the server.
+- Module names must be **unique** within their search paths. The first match is used.
+- `params.Module` takes priority over `params.Utility` if both are somehow provided.
+- Functions are called with `task.spawn`, so errors will not propagate to the caller — use `warn`/logging inside your module functions.
+- `extraData` defaults to `{}` if not provided.
+- The framework does **not** do server-side validation of `Character` ownership — add your own trust checks in `S_` modules if needed.
