@@ -703,7 +703,7 @@ This means module-level state (variables declared at the top of the module) pers
 
 ## NPC Activation
 
-NPCs and server scripts can call `S_` modules directly — no remote involved. Require the module and call its functions with a plain args table:
+NPCs and server scripts can call `S_` modules directly — no remote involved. Require the module and call its functions with a plain args table. The module runs on the server and replicates to clients exactly the same way it would for a player.
 
 ```lua
 -- Script parented to an NPC model
@@ -723,16 +723,33 @@ while true do
 end
 ```
 
-`player` will be `nil` in this case — your `S_` module should handle that:
+### The NPC flow gap — and how to close it
+
+When a **player** activates a skill, the flow is:
+
+```
+C_Punch.Start (client)  →  ServerRemote  →  S_Punch.Activate (server)  →  ReplicateRemote  →  C_Punch.Effects (all clients)
+```
+
+When an **NPC** activates the same skill, `S_Punch.Activate` is called directly on the server. The client-side `Start` function was never called — so any local setup that lives there (playing the NPC's animation, running a pre-hit effect, etc.) is skipped. Only the replication at the end fires.
+
+If your `C_Punch.Start` contains things that should also run for NPCs — like playing an attack animation visible to all players — you need to replicate that step too. Do this by firing `C_Punch.Start` through `ReplicateRemote` from inside `S_Punch.Activate` when `player` is `nil`:
 
 ```lua
+-- S_Punch.lua
 module.Activate = function(args: Packets.Args, player: Player?)
-    -- player is nil for NPC calls — don't FireClient to nil
-    if player then
-        -- player-specific logic
+    if not player then
+        -- This action started from the server (NPC), not from a client.
+        -- C_Punch.Start was never called, so we replicate it now so all
+        -- clients can run the local setup (animations, pre-effects, etc.)
+        Packet:Fire({
+            Module = "Punch",
+            Function = "Start",
+            Character = args.Character,
+        })
     end
 
-    -- replication still works — Fire broadcasts to all clients as normal
+    -- Replicate the confirmed effect to all clients as normal
     Packet:Fire({
         Module = "Punch",
         Function = "Effects",
@@ -740,6 +757,76 @@ module.Activate = function(args: Packets.Args, player: Player?)
     }, { Type = "Highlight" })
 end
 ```
+
+### Preventing an infinite loop on the client
+
+When `C_Punch.Start` is called by `UniReplicator` (as replicated from the NPC path above), it runs on every client. If `Start` blindly fires `ServerRemote` again, every client will re-trigger `S_Punch.Activate` — which fires `Start` again — loop.
+
+The fix is a guard inside `C_Punch.Start`: only fire the server if the character belongs to the local player. An NPC's character never belongs to any local player, so the check naturally blocks the loop:
+
+```lua
+-- C_Punch.lua
+local Players = game:GetService("Players")
+
+module.Start = function(args: Packets.Args)
+    local char = if typeof(args) == "table" then args.Character else (args :: any)
+
+    -- Run local visuals for everyone (animation, pre-effect, etc.)
+    -- This runs whether the call came from the player's own input
+    -- or was replicated from an NPC activation.
+    -- e.g. animator:LoadAnimation(punchAnim):Play()
+
+    -- Only fire the server if this character belongs to the local player.
+    -- For NPC characters this is always false, so no loop occurs.
+    if char and Players:GetPlayerFromCharacter(char) then
+        Packets.ServerRemote:Fire({
+            Module = "Punch",
+            Function = "Activate",
+            Character = char,
+        })
+    end
+end
+```
+
+This single check makes `Start` safe to call from both origins:
+
+| Origin | `GetPlayerFromCharacter` result | Server fired? |
+|---|---|---|
+| Player activates tool | Returns the local `Player` | ✅ Yes — intended |
+| NPC replicated via `ReplicateRemote` | Returns `nil` | ❌ No — loop blocked |
+
+### Full NPC flow with the fix applied
+
+```
+[Server] NPC script → S_Punch.Activate({ Character = npc })
+    │  player is nil → replicate Start to all clients
+    ├─► ReplicateRemote:Fire({ Module="Punch", Function="Start", Character=npc })
+    │         │
+    │    [UniReplicator] → C_Punch.Start(args)
+    │         │  plays animation (visible to all)
+    │         └─► GetPlayerFromCharacter(npc) = nil → does NOT fire server ✅
+    │
+    └─► ReplicateRemote:Fire({ Module="Punch", Function="Effects", Character=npc })
+              │
+         [UniReplicator] → C_Punch.Effects(args)
+              └─► highlight, particles, etc. on all clients
+```
+
+Compare with the player flow for reference:
+
+```
+[Client] Tool activated → C_Punch.Start({ Character = playerChar })
+    │  plays animation locally (prediction)
+    └─► GetPlayerFromCharacter(playerChar) = Player → fires ServerRemote
+              │
+         [UniHandler] → S_Punch.Activate(args, player)
+              │  player is not nil → skip the Start replication
+              └─► ReplicateRemote:Fire({ Module="Punch", Function="Effects" })
+                        │
+                   [UniReplicator] → C_Punch.Effects on all clients
+```
+
+The two flows share the same `S_Punch` and `C_Punch` modules. The `player == nil` check is what branches them.
 
 ---
 
@@ -996,8 +1083,12 @@ local module = {}
 module.Start = function(args: Packets.Args)
     local char = if typeof(args) == "table" then args.Character else (args :: any)
 
-    -- play local animation here for instant feedback
+    -- Run local visuals for everyone — plays whether this was triggered by the
+    -- player's own input OR replicated here from an NPC activation.
+    -- e.g. animator:LoadAnimation(punchAnim):Play()
 
+    -- Only fire the server if this character belongs to the local player.
+    -- NPC characters never pass this check, preventing a replication loop.
     if char and Players:GetPlayerFromCharacter(char) then
         Packets.ServerRemote:Fire({
             Module = "Punch",
@@ -1039,6 +1130,18 @@ module.Activate = function(args: Packets.Args, player: Player?)
     -- validate here: cooldown, range, ownership checks, etc.
     -- return early to silently reject without replicating
 
+    if not player then
+        -- NPC path: C_Punch.Start was never called on any client,
+        -- so replicate it now so clients can play the attack animation.
+        -- C_Punch.Start has a player ownership guard to prevent looping.
+        Packet:Fire({
+            Module = "Punch",
+            Function = "Start",
+            Character = char,
+        })
+    end
+
+    -- Replicate the confirmed effect to all clients
     Packet:Fire({
         Module = "Punch",
         Function = "Effects",
