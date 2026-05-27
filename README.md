@@ -350,7 +350,8 @@ Both `UniHandler` and `UniReplicator` cache `require` results by module name. A 
 - `params.Module` takes priority over `params.Utility` if both keys are present.
 - Functions run inside `task.spawn`, so errors won't surface to the caller — use `warn` or a logging utility inside your functions - in works.
 - `extraData` / `data` defaults to `{}` if not provided in the `Fire` call.
-- The framework does **not** verify that the firing player owns the `Character` they pass. Add your own check in `S_` modules where it matters: `Players:GetPlayerFromCharacter(Character) == player`,Why? because this system can also work for npcs.
+- Patched, it verifies the event to enusre character meeting the requirements of the same player.
+- Adding Npc system
 - I will be pushing updates for those things: Rollback ( missprediction rollback for things like animations! ), optimizations, qol and more details on the docs!
 ### Credits:
 https://devforum.roblox.com/t/packet-networking-library/3573907?page=4 -- Thanks to suphi for Packets ( required for use )
