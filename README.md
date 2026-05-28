@@ -847,6 +847,7 @@ Compare with the player flow:
 - **Errors inside dispatched functions won't surface to the caller.** Use `warn` or `pcall` inside your functions for debugging.
 - **`Data` defaults to `{}`** if not provided. Your functions always receive a table, never `nil`.
 - **Character is always optional.** Guard with `if args.Character then` before using it in any module that might be called without one.
+- **Moduels that are required to being called characterless, have to do checks to make sure that the call isnt spoofed
 - **`UniHandler` rejects any character that doesn't belong to the sending player.** Clients can only pass their own character. NPCs call the server directly and bypass `OnServerEvent` entirely.
 
 **Planned:**
