@@ -13,7 +13,7 @@ UniFramework handles the plumbing for this pattern — a single shared remote in
     │  plays local animation immediately (prediction)
     └─► ServerRemote:Fire({ Module="Punch", Function="Activate", Character=char })
               │
-         [UniHandler] → finds S_Punch → S_Punch.Activate(args, player)
+         [UniHandler] → validates ownership → finds S_Punch → S_Punch.Activate(args, player)
               │  server validates the action
               └─► ReplicateRemote:Fire({ Module="Punch", Function="Effects", Character=char }, { Type="Highlight" })
                         │
@@ -40,6 +40,7 @@ UniFramework handles the plumbing for this pattern — a single shared remote in
   - [Utility Module](#utility-module)
   - [Characterless Calls](#characterless-calls)
 - [How Dispatch Works Internally](#how-dispatch-works-internally)
+- [Security — Anti-Spoof](#security--anti-spoof)
 - [Module Caching](#module-caching)
 - [NPC Activation](#npc-activation)
 - [Notes & Limitations](#notes--limitations)
@@ -51,7 +52,7 @@ UniFramework handles the plumbing for this pattern — a single shared remote in
 
 | Module | Type | Location | Role |
 |---|---|---|---|
-| `UniHandler` | Script | ServerScriptService | Listens on `ServerRemote`, dispatches to `S_` modules |
+| `UniHandler` | Script | ServerScriptService | Listens on `ServerRemote`, validates ownership, dispatches to `S_` modules |
 | `UniReplicator` | LocalScript | StarterPlayerScripts | Listens on `ReplicateRemote`, dispatches to `C_` modules |
 | `Packets` | Shared ModuleScript | ReplicatedStorage/Remotes | Wraps and exposes the two remotes with typed helpers |
 | `Configuration` | Shared ModuleScript | ReplicatedStorage/Assets/Modules | Declares where skill modules and utilities live |
@@ -67,8 +68,8 @@ Two remotes. Two universal handlers. Any number of skills.
 │        ▼                                                      │
 │  C_Punch  ──── ServerRemote:Fire(params) ──────────────────►  │
 │                                                               │
-│  C_Punch  ◄── UniReplicator ◄── ReplicateRemote              │
-│  .Effects()     (routes by                (from server)       │
+│  C_Punch  ◄── UniReplicator ◄── ReplicateRemote               │
+│  .Effects()     (routes by         (from server)              │
 │                  module name)                                 │
 └───────────────────────────────────────────────────────────────┘
                         │ ServerRemote (Roblox Remote)
@@ -77,7 +78,7 @@ Two remotes. Two universal handlers. Any number of skills.
 │                                                               │
 │  UniHandler                                                   │
 │  (OnServerEvent)                                              │
-│        │  resolves "S_Punch"                                  │
+│        │  ownership check → resolves "S_Punch"               │
 │        ▼                                                      │
 │  S_Punch.Activate(args, player)                               │
 │        │  validates, then:                                    │
@@ -167,7 +168,6 @@ Module names must be **unique** within their search scope. The handler takes the
 `Configuration` holds the path tables that tell both handlers where to look for modules. Populate them based on where you put your skill folders:
 
 ```lua
--- Configuration.lua
 --!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -190,14 +190,12 @@ table.insert(Configuration.UtilityPaths, ReplicatedStorage.Assets.Modules.Shared
 if RunService:IsServer() then
     local ServerScriptService = game:GetService("ServerScriptService")
     table.insert(Configuration.ServerModulePaths, ServerScriptService:WaitForChild("ServerSkills"))
-
     local serverUtil = ReplicatedStorage.Assets.Modules.Server:FindFirstChild("Util")
     if serverUtil then
         table.insert(Configuration.UtilityPaths, serverUtil)
     end
 else
     table.insert(Configuration.ClientModulePaths, ReplicatedStorage:WaitForChild("ClientSkills"))
-
     local clientUtil = ReplicatedStorage.Assets.Modules.Client:FindFirstChild("Util")
     if clientUtil then
         table.insert(Configuration.UtilityPaths, clientUtil)
@@ -286,7 +284,7 @@ module.SomeFunction = function(args: Packets.Args, player: Player?)
 | Argument | Type | Description |
 |---|---|---|
 | `args` | `Packets.Args` | Merged call data. Contains `args.Character` (if provided) plus everything from the `Data` payload. |
-| `args.Character` | `Model?` | The character model from the packet. May be `nil` — always guard before use. |
+| `args.Character` | `Model?` | The character model from the packet. Always the sender's own character — `UniHandler` rejects anything else. May be `nil` for characterless calls. |
 | `player` | `Player?` | The player who fired `ServerRemote`. `nil` when the call originates from the server itself (NPC, server script). Use for ownership checks, `FireClient`, anti-cheat. |
 
 ### Client (`C_` modules) — called by UniReplicator
@@ -300,7 +298,7 @@ module.SomeFunction = function(args: Packets.Args)
 | `args` | `Packets.Args` | Merged call data. `UniReplicator` injects `args.Character` automatically from the packet. Everything from `Data` is also in this table. |
 | `args.Character` | `Model?` | Injected by `UniReplicator`. May be `nil` if the server didn't include a character — guard before use. |
 
-> `C_` functions with this signature are for **replicated** calls dispatched by `UniReplicator`. Functions you call directly from your own code (like `C_Punch.Start` from a tool) can take any arguments you like — they're regular Lua functions that happen to live in the module.
+> `C_` functions with this signature are for **replicated** calls dispatched by `UniReplicator`. Functions you call directly from your own code (like `C_Punch.Start` from a tool) can take any arguments you like — they are regular Lua functions that happen to live in the module.
 
 ---
 
@@ -332,29 +330,35 @@ local highlight = require(
 local module = {}
 
 -- Called directly by your own code (tool, input controller, etc.)
--- Runs local prediction immediately, then notifies the server.
+-- Also called by UniReplicator when an NPC activates this skill server-side.
+-- The GetPlayerFromCharacter check handles both cases:
+--   - Direct call from local player → passes, fires server
+--   - Replicated NPC call → fails (NPC is not a player), stops here
 module.Start = function(args: Packets.Args)
     local char = if typeof(args) == "table" then args.Character else (args :: any)
+    if not char then return end
 
     -- play local animation here for instant feedback (prediction)
     -- e.g. animator:LoadAnimation(punchAnim):Play()
 
-    if char and Players:GetPlayerFromCharacter(char) then
-        -- tell the server to validate and replicate
+    if Players:GetPlayerFromCharacter(char) then
+        -- char belongs to a player — fire the server to validate and replicate
         Packets.ServerRemote:Fire({
             Module = "Punch",
             Function = "Activate",
             Character = char,
         })
     end
+    -- if char is an NPC, we stop here — no server call, no loop
 end
 
 -- Called by UniReplicator when the server confirms and replicates the effect.
--- args.Character is injected automatically — you don't pass it from the server separately.
+-- args.Character is injected automatically.
 module.Effects = function(args: Packets.Args)
-    if args.Type == "Highlight" and args.Character then
+    local char = args.Character
+    if args.Type == "Highlight" and char then
         highlight.Create({
-            Character = args.Character,
+            Character = char,
             Color = Color3.fromRGB(255, 0, 0),
             Transparency = 0.5,
             FadeDuration = 1,
@@ -368,20 +372,19 @@ return module
 **Calling `Start` from a Tool:**
 
 ```lua
--- LocalScript inside a Tool
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local C_Punch = require(ReplicatedStorage.ClientSkills.Base.Punch.C_Punch)
+--!strict
 local Tool = script.Parent
+local SkillMod = require(game.ReplicatedStorage.ClientSkills.Base.Punch.C_Punch) :: any
 
 Tool.Activated:Connect(function()
-    C_Punch.Start({ Character = Tool.Parent })
+    local Character = Tool.Parent :: any
+    SkillMod.Start(Character)
 end)
 ```
 
 **Calling `Start` from a custom input controller:**
 
 ```lua
--- Any LocalScript / controller
 local UserInputService = game:GetService("UserInputService")
 local C_Punch = require(ReplicatedStorage.ClientSkills.Base.Punch.C_Punch)
 local player = game.Players.LocalPlayer
@@ -389,12 +392,12 @@ local player = game.Players.LocalPlayer
 UserInputService.InputBegan:Connect(function(input, processed)
     if processed then return end
     if input.KeyCode == Enum.KeyCode.E then
-        C_Punch.Start({ Character = player.Character })
+        C_Punch.Start(player.Character)
     end
 end)
 ```
 
-You can call `C_` module functions from anywhere on the client — tools, input systems, UI buttons, proximity prompts. As long as you `require` the module and pass the right args, it works.
+You can call `C_` module functions from anywhere on the client — tools, input systems, UI buttons, proximity prompts. Pass either the character model directly or a table with a `Character` field; both are handled.
 
 ---
 
@@ -415,30 +418,28 @@ local module = {}
 module.Activate = function(args: Packets.Args, player: Player?)
     local char = args.Character
 
-    -- Validate the action before doing anything
-    -- Return early (no replication) if invalid
-    if char then
-        -- example checks:
-        -- if not IsInRange(char) then return end
-        -- if OnCooldown(player) then return end
-        warn("Punch validated for:", char.Name)
+    -- Validate the action before doing anything.
+    -- Return early (no replication) if invalid.
+    -- if OnCooldown(player) then return end
+    -- if not IsInRange(char) then return end
+
+    if not player then
+        -- NPC path: C_Punch.Start was never called on any client.
+        -- Replicate it now so all clients run the local setup (animations etc.)
+        -- C_Punch.Start will see an NPC character and stop before re-firing the server.
+        Packet:Fire({
+            Module = "Punch",
+            Function = "Start",
+            Character = char,
+        })
     end
 
-    -- Replicate confirmed effect to ALL clients (every player sees it)
+    -- Replicate confirmed effect to ALL clients
     Packet:Fire({
         Module = "Punch",
         Function = "Effects",
         Character = char,
     }, { Type = "Highlight" })
-
-    -- Or replicate only to the acting player (private feedback, UI, etc.)
-    if player then
-        Packet:FireClient(player, {
-            Module = "Punch",
-            Function = "Effects",
-            Character = char,
-        }, { Type = "Highlight" })
-    end
 end
 
 return module
@@ -455,7 +456,7 @@ return module
 
 ### Utility Module
 
-Place in any folder listed under `UtilityPaths`. No prefix. Utility modules are reachable from both the server and client sides.
+Place in any folder listed under `UtilityPaths`. No prefix. Utility modules are reachable from both sides.
 
 ```lua
 -- Highlight.lua  (ReplicatedStorage/Assets/Modules/Shared/Util/Highlight)
@@ -467,12 +468,10 @@ module.Create = function(config: {
     Transparency: number,
     FadeDuration: number,
 })
-    -- apply a highlight SelectionBox or Highlight instance to config.Character
     local h = Instance.new("Highlight")
     h.FillColor = config.Color
     h.FillTransparency = config.Transparency
     h.Parent = config.Character
-
     task.delay(config.FadeDuration, function()
         h:Destroy()
     end)
@@ -484,7 +483,6 @@ return module
 To invoke a utility module through the remote system, use `Utility` instead of `Module` in your params:
 
 ```lua
--- Call a utility function via replication (server → clients)
 Packets.ReplicateRemote:Fire({
     Utility = "Highlight",
     Function = "Create",
@@ -496,10 +494,9 @@ Packets.ReplicateRemote:Fire({
 })
 ```
 
-Or call it directly (no remote) if you're already on the right side:
+Or call it directly if you are already on the right side — no remote needed:
 
 ```lua
--- Direct call from a C_ module or LocalScript
 local highlight = require(ReplicatedStorage.Assets.Modules.Shared.Util.Highlight)
 highlight.Create({ Character = char, Color = Color3.new(1,0,0), Transparency = 0.5, FadeDuration = 1 })
 ```
@@ -508,7 +505,7 @@ highlight.Create({ Character = char, Color = Color3.new(1,0,0), Transparency = 0
 
 ### Characterless Calls
 
-`Character` is always optional. Any call that doesn't involve a specific character simply omits it. The handlers inject `args.Character` only when it's present — leaving it out is not an error.
+`Character` is always optional. Any call that doesn't involve a specific character simply omits it.
 
 **From the client — opening a shop:**
 
@@ -538,9 +535,7 @@ Packets.ReplicateRemote:Fire({
 ```lua
 -- S_Shop.lua
 module.Open = function(args: Packets.Args, player: Player?)
-    -- args.Character is nil here — that's expected and fine
-    local itemId = args.ItemId
-    -- process the shop request...
+    local itemId = args.ItemId  -- args.Character is nil here — expected and fine
 end
 ```
 
@@ -551,11 +546,11 @@ end
 ### UniHandler (server)
 
 ```lua
--- UniHandler.lua
 --!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Assets = ReplicatedStorage:FindFirstChild("Assets")
 local Config = require(Assets:FindFirstChild("Modules"):WaitForChild("Configuration"))
+local Players = game:GetService("Players")
 local Packets = require(ReplicatedStorage.Remotes.Packets)
 
 local CachedModules: { [string]: any } = {}
@@ -573,11 +568,9 @@ end
 
 local function GetModule(name: string, isNamespace: boolean): any?
     if CachedModules[name] then return CachedModules[name] end
-
     local searchName = isNamespace and ("S_" .. name) or name
     local paths = isNamespace and Config.ServerModulePaths or Config.UtilityPaths
     local modScript = SearchPaths(paths, searchName)
-
     if modScript then
         local ok, result = pcall(require, modScript)
         if ok then
@@ -592,16 +585,23 @@ Packets.ServerRemote.OnServerEvent:Connect(function(player: Player, params: any,
     local pms = params :: Packets.Params
     if not pms then return end
 
-    local isNamespace = pms.Module ~= nil
-    local module = GetModule(pms.Module or pms.Utility or "", isNamespace)
+    local module = GetModule(pms.Module or pms.Utility or "", pms.Module ~= nil)
     if not module then return end
 
     local func = module[pms.Function]
     if typeof(func) ~= "function" then return end
 
     local callData: { [any]: any } = if typeof(data) == "table" then data else {}
+
     if pms.Character then
-        callData.Character = pms.Character
+        -- Anti-spoof: only accept the character if it belongs to the sender.
+        -- Rejects other players' characters, NPC models, and fabricated references.
+        if Players:GetPlayerFromCharacter(pms.Character) == player then
+            callData.Character = pms.Character
+        else
+            warn("UniHandler: character mismatch from", player.Name)
+            return
+        end
     end
 
     func(callData, player)
@@ -616,13 +616,12 @@ Step by step:
 2. `params` is read as `Packets.Params` to get `Module`/`Utility` and `Function`
 3. If `Module` is set → prepend `S_`, search `ServerModulePaths`; if `Utility` → search `UtilityPaths` as-is
 4. Module is `require`d and cached by name
-5. `Character` is injected into `callData` only if `params.Character` is non-nil
-6. `module[Function](callData, player)` is called directly (use `task.spawn` if you want error isolation)
+5. If `Character` is provided, ownership is validated — rejects anything that isn't the sender's own character
+6. `module[Function](callData, player)` is called
 
 ### UniReplicator (client)
 
 ```lua
--- UniReplicator.lua
 --!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Assets = ReplicatedStorage:FindFirstChild("Assets")
@@ -644,11 +643,9 @@ end
 
 local function GetModule(name: string, isNamespace: boolean): any?
     if CachedModules[name] then return CachedModules[name] end
-
     local searchName = isNamespace and ("C_" .. name) or name
     local paths = isNamespace and Config.ClientModulePaths or Config.UtilityPaths
     local modScript = SearchPaths(paths, searchName)
-
     if modScript then
         local ok, result = pcall(require, modScript)
         if ok then
@@ -663,8 +660,7 @@ Packets.ReplicateRemote.OnClientEvent:Connect(function(params: any, data: any)
     local pms = params :: Packets.Params
     if not pms then return end
 
-    local isNamespace = pms.Module ~= nil
-    local module = GetModule(pms.Module or pms.Utility or "", isNamespace)
+    local module = GetModule(pms.Module or pms.Utility or "", pms.Module ~= nil)
     if not module then return end
 
     local func = module[pms.Function]
@@ -675,38 +671,75 @@ Packets.ReplicateRemote.OnClientEvent:Connect(function(params: any, data: any)
         callData.Character = pms.Character
     end
 
-    task.spawn(func, callData)
+    func(callData)
 end :: any)
 
 return {}
 ```
 
-Mirrors UniHandler exactly, with two differences:
+Mirrors UniHandler exactly, with one difference: no ownership check is needed here because this remote only fires from the server — clients cannot call `OnClientEvent` on each other.
 
-- Prepends `C_` and searches `ClientModulePaths` instead
-- Wraps the call in `task.spawn` so a broken effects module never stalls the replication handler
+---
+
+## Security — Anti-Spoof
+
+`UniHandler` validates every incoming `ServerRemote` call before anything runs.
+
+```lua
+if Players:GetPlayerFromCharacter(pms.Character) == player then
+    callData.Character = pms.Character
+else
+    warn("UniHandler: character mismatch from", player.Name)
+    return
+end
+```
+
+This single check covers all attack vectors:
+
+| Client sends | `GetPlayerFromCharacter` result | Outcome |
+|---|---|---|
+| Their own character | Returns `player` — matches | ✅ Accepted |
+| Another player's character | Returns a different `Player` | ❌ Rejected |
+| An NPC model | Returns `nil` | ❌ Rejected |
+| A destroyed / fake model | Returns `nil` | ❌ Rejected |
+| No character (characterless call) | Check is skipped entirely | ✅ Accepted |
+
+NPCs call `S_` modules directly on the server and never go through `OnServerEvent`, so they are unaffected by this check.
+
+On the client side, `C_Punch.Start` has a matching guard:
+
+```lua
+if Players:GetPlayerFromCharacter(char) then
+    Packets.ServerRemote:Fire({ ... })
+end
+```
+
+This means:
+- When `Start` is called directly from a tool with the local player's character → `GetPlayerFromCharacter` returns a Player → fires server
+- When `Start` is replicated to all clients by `UniReplicator` after an NPC activation → `char` is the NPC model → `GetPlayerFromCharacter` returns `nil` → stops, no loop
+
+The two checks work independently. Even if the client-side check is bypassed by an exploiter, the server-side check rejects it.
 
 ---
 
 ## Module Caching
 
-Both handlers cache `require` results by module name after the first load. A module is required exactly once per session — every subsequent dispatch to the same module reuses the cached table.
+Both handlers cache `require` results by module name after the first load. A module is required exactly once per session — every subsequent dispatch reuses the cached table.
 
 ```
 First call  → SearchPaths → require → cache["Punch"] = module → call function
 Second call → cache["Punch"] exists → call function directly
 ```
 
-This means module-level state (variables declared at the top of the module) persists across calls. If you need per-call state, keep it inside the function or in a separate state module.
+Module-level state (variables declared at the top of the module) persists across calls. If you need per-call state, keep it inside the function or in a dedicated state module.
 
 ---
 
 ## NPC Activation
 
-NPCs and server scripts can call `S_` modules directly — no remote involved. Require the module and call its functions with a plain args table. The module runs on the server and replicates to clients exactly the same way it would for a player.
+NPCs and server scripts call `S_` modules directly — no remote involved. The module runs on the server and replicates to clients the same way it would for a player.
 
 ```lua
--- Script parented to an NPC model
 --!strict
 task.wait(1)
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -718,30 +751,24 @@ local S_Punch = require(
 
 while true do
     task.wait(2)
-    warn(script.Parent.Name, "attacks!")
     S_Punch.Activate({ Character = script.Parent })
 end
 ```
 
 ### The NPC flow gap — and how to close it
 
-When a **player** activates a skill, the flow is:
+When a **player** activates a skill:
 
 ```
-C_Punch.Start (client)  →  ServerRemote  →  S_Punch.Activate (server)  →  ReplicateRemote  →  C_Punch.Effects (all clients)
+C_Punch.Start (client) → ServerRemote → S_Punch.Activate (server) → ReplicateRemote → C_Punch.Effects (all clients)
 ```
 
-When an **NPC** activates the same skill, `S_Punch.Activate` is called directly on the server. The client-side `Start` function was never called — so any local setup that lives there (playing the NPC's animation, running a pre-hit effect, etc.) is skipped. Only the replication at the end fires.
-
-If your `C_Punch.Start` contains things that should also run for NPCs — like playing an attack animation visible to all players — you need to replicate that step too. Do this by firing `C_Punch.Start` through `ReplicateRemote` from inside `S_Punch.Activate` when `player` is `nil`:
+When an **NPC** activates the same skill, `S_Punch.Activate` is called directly. `C_Punch.Start` was never called on any client — so animations and pre-effects are skipped. To fix this, `S_Punch` replicates `Start` to all clients when `player` is `nil`:
 
 ```lua
--- S_Punch.lua
 module.Activate = function(args: Packets.Args, player: Player?)
     if not player then
-        -- This action started from the server (NPC), not from a client.
-        -- C_Punch.Start was never called, so we replicate it now so all
-        -- clients can run the local setup (animations, pre-effects, etc.)
+        -- NPC path: replicate Start so clients can play the attack animation
         Packet:Fire({
             Module = "Punch",
             Function = "Start",
@@ -749,7 +776,6 @@ module.Activate = function(args: Packets.Args, player: Player?)
         })
     end
 
-    -- Replicate the confirmed effect to all clients as normal
     Packet:Fire({
         Module = "Punch",
         Function = "Effects",
@@ -758,44 +784,33 @@ module.Activate = function(args: Packets.Args, player: Player?)
 end
 ```
 
-### Preventing an infinite loop on the client
+### Loop prevention
 
-When `C_Punch.Start` is called by `UniReplicator` (as replicated from the NPC path above), it runs on every client. If `Start` blindly fires `ServerRemote` again, every client will re-trigger `S_Punch.Activate` — which fires `Start` again — loop.
-
-The fix is a guard inside `C_Punch.Start`: only fire the server if the character belongs to the local player. An NPC's character never belongs to any local player, so the check naturally blocks the loop:
+When `UniReplicator` calls `C_Punch.Start` on every client with the NPC's character, the `GetPlayerFromCharacter` check inside `Start` returns `nil` for the NPC model — so it stops before firing `ServerRemote`. No loop.
 
 ```lua
--- C_Punch.lua
-local Players = game:GetService("Players")
-
 module.Start = function(args: Packets.Args)
     local char = if typeof(args) == "table" then args.Character else (args :: any)
+    if not char then return end
 
-    -- Run local visuals for everyone (animation, pre-effect, etc.)
-    -- This runs whether the call came from the player's own input
-    -- or was replicated from an NPC activation.
-    -- e.g. animator:LoadAnimation(punchAnim):Play()
-
-    -- Only fire the server if this character belongs to the local player.
-    -- For NPC characters this is always false, so no loop occurs.
-    if char and Players:GetPlayerFromCharacter(char) then
+    if Players:GetPlayerFromCharacter(char) then
+        -- char is a player character — fire the server
         Packets.ServerRemote:Fire({
             Module = "Punch",
             Function = "Activate",
             Character = char,
         })
     end
+    -- char is an NPC — stops here, no server call
 end
 ```
 
-This single check makes `Start` safe to call from both origins:
-
-| Origin | `GetPlayerFromCharacter` result | Server fired? |
+| Origin | `GetPlayerFromCharacter(char)` | Server fired? |
 |---|---|---|
-| Player activates tool | Returns the local `Player` | ✅ Yes — intended |
-| NPC replicated via `ReplicateRemote` | Returns `nil` | ❌ No — loop blocked |
+| Player activates tool directly | Returns a `Player` | ✅ Yes |
+| NPC action replicated via `UniReplicator` | Returns `nil` | ❌ No — loop blocked |
 
-### Full NPC flow with the fix applied
+### Full NPC flow
 
 ```
 [Server] NPC script → S_Punch.Activate({ Character = npc })
@@ -803,41 +818,36 @@ This single check makes `Start` safe to call from both origins:
     ├─► ReplicateRemote:Fire({ Module="Punch", Function="Start", Character=npc })
     │         │
     │    [UniReplicator] → C_Punch.Start(args)
-    │         │  plays animation (visible to all)
-    │         └─► GetPlayerFromCharacter(npc) = nil → does NOT fire server ✅
+    │         │  GetPlayerFromCharacter(npc) = nil → stops, no server call ✅
     │
     └─► ReplicateRemote:Fire({ Module="Punch", Function="Effects", Character=npc })
               │
-         [UniReplicator] → C_Punch.Effects(args)
-              └─► highlight, particles, etc. on all clients
+         [UniReplicator] → C_Punch.Effects → highlight on all clients
 ```
 
-Compare with the player flow for reference:
+Compare with the player flow:
 
 ```
-[Client] Tool activated → C_Punch.Start({ Character = playerChar })
-    │  plays animation locally (prediction)
-    └─► GetPlayerFromCharacter(playerChar) = Player → fires ServerRemote
+[Client] Tool activated → C_Punch.Start(playerChar)
+    │  GetPlayerFromCharacter(playerChar) = Player → fires ServerRemote
               │
-         [UniHandler] → S_Punch.Activate(args, player)
-              │  player is not nil → skip the Start replication
+         [UniHandler] → ownership check passes → S_Punch.Activate(args, player)
+              │  player is not nil → skip Start replication
               └─► ReplicateRemote:Fire({ Module="Punch", Function="Effects" })
                         │
                    [UniReplicator] → C_Punch.Effects on all clients
 ```
 
-The two flows share the same `S_Punch` and `C_Punch` modules. The `player == nil` check is what branches them.
-
 ---
 
 ## Notes & Limitations
 
-- **Module names must be unique** within their search scope. The handler takes the first match found when scanning descendants. Two modules named `S_Punch` in different sub-folders of the same container will collide.
+- **Module names must be unique** within their search scope. The handler takes the first match found when scanning descendants.
 - **`Module` takes priority over `Utility`** if both keys are present in a single `Params` table.
-- **Errors inside dispatched functions won't surface to the caller.** Both handlers call the function directly (UniReplicator wraps in `task.spawn`). Use `warn`, `pcall`, or a logging utility inside your functions.
+- **Errors inside dispatched functions won't surface to the caller.** Use `warn` or `pcall` inside your functions for debugging.
 - **`Data` defaults to `{}`** if not provided. Your functions always receive a table, never `nil`.
-- **Character is always optional.** Any module that might be called without a character should guard with `if args.Character then` before using it.
-- **The framework does not validate character ownership.** If a client sends someone else's character model in `params.Character`, the server will receive it. Add your own ownership checks in `S_` modules when it matters: `if Players:GetPlayerFromCharacter(char) ~= player then return end`.
+- **Character is always optional.** Guard with `if args.Character then` before using it in any module that might be called without one.
+- **`UniHandler` rejects any character that doesn't belong to the sending player.** Clients can only pass their own character. NPCs call the server directly and bypass `OnServerEvent` entirely.
 
 **Planned:**
 - Rollback system for misprediction correction (animations, state)
@@ -847,7 +857,7 @@ The two flows share the same `S_Punch` and `C_Punch` modules. The `player == nil
 
 ## Full Example Reference
 
-Here is every file involved in the Punch skill end to end, for quick reference.
+Every file involved in the Punch skill, end to end.
 
 <details>
 <summary>Packets.lua</summary>
@@ -881,23 +891,19 @@ type RawPacket = {
 local function CreateRemote(Name: string): RawPacket
     local Raw = Packet(Name, Packet.Any, Packet.Any)
     local Wrapper = {}
-
     Wrapper.OnServerEvent = Raw.OnServerEvent
     Wrapper.OnClientEvent = Raw.OnClientEvent
-
     function Wrapper:Fire(Params: Params, Data: any?)
         Raw:Fire(Params, Data or {})
     end
-
     function Wrapper:FireClient(Player: Player, Params: Params, Data: any?)
         Raw:FireClient(Player, Params, Data or {})
     end
-
     return Wrapper :: any
 end
 
 return {
-    ServerRemote   = CreateRemote("ServerRemote"),
+    ServerRemote    = CreateRemote("ServerRemote"),
     ReplicateRemote = CreateRemote("ReplicateRemote"),
 }
 ```
@@ -950,6 +956,7 @@ return Configuration
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Assets = ReplicatedStorage:FindFirstChild("Assets")
 local Config = require(Assets:FindFirstChild("Modules"):WaitForChild("Configuration"))
+local Players = game:GetService("Players")
 local Packets = require(ReplicatedStorage.Remotes.Packets)
 
 local CachedModules: { [string]: any } = {}
@@ -984,15 +991,22 @@ Packets.ServerRemote.OnServerEvent:Connect(function(player: Player, params: any,
     local pms = params :: Packets.Params
     if not pms then return end
 
-    local isNamespace = pms.Module ~= nil
-    local module = GetModule(pms.Module or pms.Utility or "", isNamespace)
+    local module = GetModule(pms.Module or pms.Utility or "", pms.Module ~= nil)
     if not module then return end
 
     local func = module[pms.Function]
     if typeof(func) ~= "function" then return end
 
     local callData: { [any]: any } = if typeof(data) == "table" then data else {}
-    if pms.Character then callData.Character = pms.Character end
+
+    if pms.Character then
+        if Players:GetPlayerFromCharacter(pms.Character) == player then
+            callData.Character = pms.Character
+        else
+            warn("UniHandler: character mismatch from", player.Name)
+            return
+        end
+    end
 
     func(callData, player)
 end :: any)
@@ -1044,17 +1058,18 @@ Packets.ReplicateRemote.OnClientEvent:Connect(function(params: any, data: any)
     local pms = params :: Packets.Params
     if not pms then return end
 
-    local isNamespace = pms.Module ~= nil
-    local module = GetModule(pms.Module or pms.Utility or "", isNamespace)
+    local module = GetModule(pms.Module or pms.Utility or "", pms.Module ~= nil)
     if not module then return end
 
     local func = module[pms.Function]
     if typeof(func) ~= "function" then return end
 
     local callData: { [any]: any } = if typeof(data) == "table" then data else {}
-    if pms.Character then callData.Character = pms.Character end
+    if pms.Character then
+        callData.Character = pms.Character
+    end
 
-    task.spawn(func, callData)
+    func(callData)
 end :: any)
 
 return {}
@@ -1082,14 +1097,9 @@ local module = {}
 
 module.Start = function(args: Packets.Args)
     local char = if typeof(args) == "table" then args.Character else (args :: any)
+    if not char then return end
 
-    -- Run local visuals for everyone — plays whether this was triggered by the
-    -- player's own input OR replicated here from an NPC activation.
-    -- e.g. animator:LoadAnimation(punchAnim):Play()
-
-    -- Only fire the server if this character belongs to the local player.
-    -- NPC characters never pass this check, preventing a replication loop.
-    if char and Players:GetPlayerFromCharacter(char) then
+    if Players:GetPlayerFromCharacter(char) then
         Packets.ServerRemote:Fire({
             Module = "Punch",
             Function = "Activate",
@@ -1099,9 +1109,10 @@ module.Start = function(args: Packets.Args)
 end
 
 module.Effects = function(args: Packets.Args)
-    if args.Type == "Highlight" and args.Character then
+    local char = args.Character
+    if args.Type == "Highlight" and char then
         highlight.Create({
-            Character = args.Character,
+            Character = char,
             Color = Color3.fromRGB(255, 0, 0),
             Transparency = 0.5,
             FadeDuration = 1,
@@ -1127,13 +1138,11 @@ local module = {}
 module.Activate = function(args: Packets.Args, player: Player?)
     local char = args.Character
 
-    -- validate here: cooldown, range, ownership checks, etc.
+    -- validate here: cooldown, range, etc.
     -- return early to silently reject without replicating
 
     if not player then
-        -- NPC path: C_Punch.Start was never called on any client,
-        -- so replicate it now so clients can play the attack animation.
-        -- C_Punch.Start has a player ownership guard to prevent looping.
+        -- NPC path: replicate Start to all clients
         Packet:Fire({
             Module = "Punch",
             Function = "Start",
@@ -1141,7 +1150,6 @@ module.Activate = function(args: Packets.Args, player: Player?)
         })
     end
 
-    -- Replicate the confirmed effect to all clients
     Packet:Fire({
         Module = "Punch",
         Function = "Effects",
@@ -1160,10 +1168,11 @@ return module
 ```lua
 --!strict
 local Tool = script.Parent
-local SkillMod = require(game.ReplicatedStorage.ClientSkills.Base.Punch.C_Punch)
+local SkillMod = require(game.ReplicatedStorage.ClientSkills.Base.Punch.C_Punch) :: any
 
 Tool.Activated:Connect(function()
-    SkillMod.Start({ Character = Tool.Parent })
+    local Character = Tool.Parent :: any
+    SkillMod.Start(Character)
 end)
 ```
 
@@ -1184,7 +1193,6 @@ local S_Punch = require(
 
 while true do
     task.wait(2)
-    warn(script.Parent.Name, "attacks!")
     S_Punch.Activate({ Character = script.Parent })
 end
 ```
