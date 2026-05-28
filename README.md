@@ -703,7 +703,7 @@ This single check covers all attack vectors:
 | An NPC model | Returns `nil` | ❌ Rejected |
 | A destroyed / fake model | Returns `nil` | ❌ Rejected |
 | No character (characterless call) | Check is skipped entirely | ✅ Accepted |
-
+Note: Characterless calls must be secured with validation checks, otherwise will be exploited!
 NPCs call `S_` modules directly on the server and never go through `OnServerEvent`, so they are unaffected by this check.
 
 On the client side, `C_Punch.Start` has a matching guard:
