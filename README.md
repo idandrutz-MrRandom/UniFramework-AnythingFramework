@@ -1,5 +1,5 @@
 # UniFramework
-
+# The documentation was mostly written by AI since im not usually free. Dm idan4k for any questions or documentation fixes!
 A prediction-based remote dispatch framework for Roblox. The client acts immediately — playing animations, showing effects, responding to input — while the server receives the action, validates it, and replicates the authoritative result back. This keeps gameplay feeling responsive while still giving the server full control over what actually counts.
 
 The system can also start entirely from the server and replicate effects outward to clients, but it was specifically designed to shine with client-side prediction.
