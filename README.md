@@ -1,5 +1,5 @@
 # UniFramework
-
+V 2.0
 > The documentation was mostly written by AI since im not usually free. Dm idan4k for any questions or documentation fixes!
 ## If you want to get a deeper understanding, i recommend you to use the Given rbxl place to check it out and play around with it.
 A prediction-based remote dispatch framework for Roblox. The client acts immediately — animations, effects, movement — while the server validates and replicates the authoritative result. If the server rejects the action, a `Correction` is automatically sent back so the client can undo whatever it jumped ahead with.
