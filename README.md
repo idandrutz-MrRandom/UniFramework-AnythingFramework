@@ -1,6 +1,7 @@
 # UniFramework
-> The documentation was mostly written by AI since im not usually free. Dm idan4k for any questions or documentation fixes!
 
+> The documentation was mostly written by AI since im not usually free. Dm idan4k for any questions or documentation fixes!
+> If you want to get a deeper understanding, i reccomend you to use the Given rbxl place to check it out and play around with it.
 A prediction-based remote dispatch framework for Roblox. The client acts immediately — animations, effects, movement — while the server validates and replicates the authoritative result. If the server rejects the action, a `Correction` is automatically sent back so the client can undo whatever it jumped ahead with.
 
 The same pattern works for anything: a dash blocked by a stun, a building placement that collides, a shop purchase that fails a currency check, a spell that gets interrupted. UniFramework doesn't care what the action is — it just routes calls to the right module and function on the right side.
