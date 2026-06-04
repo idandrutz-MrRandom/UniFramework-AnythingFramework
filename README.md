@@ -77,7 +77,7 @@ The included files are a fully working test case. Drop them in and you can see p
 | 🟢 Green | Server rejected — correction received (`Type = "Correction"`) |
 
 The `Type` field is what drives the colour in `C_Punch.Effects`. On the correction path, `Correction` calls `Finish` which calls `Effects` — and you can optionally overwrite `args.Type` to `"Correction"` inside `Correction` to show the green highlight (see the commented line in `C_Punch`).
-
+> REMEMBER! ADD CHECKS ON CLIENT (THE SAME ONES AND MORE THAT YOU HAVE ON THE SERVER SO YOU WONT SEND UNNECESSARY EVENTS). THIS IMPROVES PERFORMANCE AND MAKES IT BETTER IN GENERAL.
 To force a rejection: set the `Action` attribute on your character in the Explorer before clicking, or have Humanoid health below 100.
 
 ---
