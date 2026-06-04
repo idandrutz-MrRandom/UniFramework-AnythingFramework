@@ -249,11 +249,13 @@ local highlight = require(ReplicatedStorage:WaitForChild("Assets"):WaitForChild(
 
 local module = {}
 
-module.Start = function(args: Packets.Args)
-	local char = if typeof(args) == "table" then args.Character else (args :: any)
-	if not char or not Players:GetPlayerFromCharacter(char) then return end
+module.Start = function(args: Packets.Args) -- no checks here for testing purposes.
+	local char = if typeof(args) == "table" then args.Character else (args :: any) 
+	if  char and  Players:GetPlayerFromCharacter(char) then --here we check if its a player or not, if its not a player it means that its been called from the server side of the Skill / module, and not checking it here
+		Packets.ServerRemote:Fire({ Module = "Punch", Function = "Activate", Character = char }) -- may cause an infinite loop of the events calling each other, so make sure when you start on client to check its a player
+		-- and if not then dont send the event ( more stuff will be noted later on. )
+	end
 
-	Packets.ServerRemote:Fire({ Module = "Punch", Function = "Activate", Character = char })
 	-- client-side prediction goes here
 end
 
