@@ -492,7 +492,7 @@ Both handlers cache modules after the first `require`. Module-level variables pe
 - `Module` takes priority over `Utility` if both are set in the same params
 - `Data` defaults to `{}` — your functions always receive a table
 - Errors inside dispatched functions don't surface to the caller — use `warn`/`pcall` inside your modules
-- `FireCloseClients` without a character broadcasts to everyone
+- `FireCloseClients` without a character broadcasts to everyone — its not intendet to `FireCloseClients` for characterless calls.
 - Characterless calls skip the ownership check — validate them carefully inside the module
 
 **Planned:** rollback system for misprediction correction, additional optimizations.
