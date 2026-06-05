@@ -2,6 +2,7 @@
 local Packets = require(game.ReplicatedStorage.Remotes.Packets)
 local Packet = Packets.ReplicateRemote
 local module = {}
+module.Remotes = { Activate = true }
 
 module.Activate = function(args: Packets.Args, player: Player?): any
 	local char = args.Character

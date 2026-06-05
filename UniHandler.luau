@@ -45,6 +45,17 @@ Packets.ServerRemote.OnServerEvent:Connect(function(player: Player, params: any,
 	local module = GetModule(moduleName, isNamespace)
 	if not module then return end
 
+	if typeof(pms.Function) ~= "string" then return end
+
+	-- Only functions the module explicitly publishes in `Remotes` are callable
+	-- from a client. Without this, an exploiter can invoke any function on the
+	-- module table, including internal helpers never meant to cross the network.
+	local remotes = module.Remotes
+	if typeof(remotes) ~= "table" or not remotes[pms.Function] then
+		warn("[UniHandler]: '" .. tostring(pms.Function) .. "' is not a published remote on '" .. moduleName .. "'")
+		return
+	end
+
 	local func = module[pms.Function]
 	if typeof(func) ~= "function" then return end
 
