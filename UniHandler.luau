@@ -72,12 +72,17 @@ Packets.ServerRemote.OnServerEvent:Connect(function(player: Player, params: any,
 	
 	end
 
-	local Function = func(callData, player) :: any
-	--warn(tostring(Function).." MODULE RETURN!")
-	if Function  then
-		warn("[UniHandler]: Fail Validation: "..tostring(pms.Character).." | "..tostring(pms.Module))
-		Packets.ReplicateRemote:FireClient(player,{Module = pms.Module,Function = "Correction",Character = pms.Character})
-
+	local rejected = func(callData, player) :: any
+	if rejected then
+		warn("[UniHandler]: rejected " .. moduleName .. "." .. pms.Function)
+		-- Route the correction back using the server-resolved module name, never
+		-- the raw client value: otherwise a client could make the server fire
+		-- Correction on any C_ module it names, unrelated to the rejected action.
+		if isNamespace then
+			Packets.ReplicateRemote:FireClient(player, { Module = moduleName, Function = "Correction", Character = callData.Character })
+		else
+			Packets.ReplicateRemote:FireClient(player, { Utility = moduleName, Function = "Correction", Character = callData.Character })
+		end
 	end
 end :: any)
 
