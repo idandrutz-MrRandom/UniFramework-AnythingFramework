@@ -7,7 +7,7 @@
 ## How it works
 
 ```
-Tool / Trigger → C_Module.Start() → ServerRemote:Fire() → UniHandler → S_Module.Activate()
+Tool / Trigger → C_Module.Start() → ServerRemote:Fire() → UniHandler (can do extra checks to validate if the call was right ) → S_Module.Activate()
     → validates → ReplicateRemote → nearby clients
                 ↓ (if "Fail" returned)
     UniHandler fires Correction packet → C_Module.Correction()
@@ -262,7 +262,8 @@ end)
 ```
 
 ---
-
+### Remember to always add checks to the UniHandler to ensure that the calls are right, so there wont be situations where a player fires a Skill that he doesnt have access too. ( the bare minimun is to add additional checks)
+## Why i didnt add it? because this is universal, and it wont fit the criterias for everyone. just add your own checks to ensure that the client call is allowed.
 ## Predictive vs Non-Predictive mode
 
 ### Predictive mode (default)
@@ -497,5 +498,5 @@ Without the `MainModule` in place, `Packets` will error on require and nothing w
 |---|---|
 | **Packet networking library** | [Suphi](https://devforum.roblox.com/t/packet-networking-library/3573907) |
 | **UniFramework** | idan4k |
-
+| *Tutorial for punch setup https://youtu.be/DIh3fUclDyg*
 Found a bug or have a question? Report issues to **idan4k**.
