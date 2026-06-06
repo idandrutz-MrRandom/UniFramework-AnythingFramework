@@ -507,4 +507,5 @@ Dont forget to configure the Configuration module to fit your needs.
 | **Packet networking library** | [Suphi](https://devforum.roblox.com/t/packet-networking-library/3573907) |
 | **UniFramework** | idan4k |
 | *Tutorial for punch setup https://youtu.be/DIh3fUclDyg*
+| *Tutorial For new skill Setup ( in works )
 Found a bug or have a question? Report issues to **idan4k**.
