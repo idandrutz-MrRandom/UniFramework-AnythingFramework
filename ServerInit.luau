@@ -1,0 +1,5 @@
+require(game.ReplicatedStorage.Remotes.Packets)
+require(game.ServerScriptService.SkillHandler.UniHandler)
+require(game.ReplicatedStorage.Assets.Modules.Shared.Util.Cooldowns)
+require(game.ReplicatedStorage.Assets.Modules.Shared.Util.AnimationManager)
+require(game.ServerStorage.MuchachoHitbox)
