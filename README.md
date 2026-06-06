@@ -1,6 +1,6 @@
 # UniFramework
 
-**A framework that allows for client side prediction and server authoritive validation at the same time! Pick whichever fits best for the task!**
+**A server-authoritative skill dispatch framework for Roblox with optional client-side prediction and automatic correction rollback.**
 
 ---
 
