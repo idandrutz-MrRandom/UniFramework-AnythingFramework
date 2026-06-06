@@ -1,6 +1,6 @@
 # UniFramework
 
-**A server-authoritative skill dispatch framework for Roblox with optional client-side prediction and automatic correction rollback.**
+**A framework that allows BOTH server authority and validation and Client side prediction with correction!**
 
 ---
 
@@ -481,7 +481,7 @@ UniFramework uses **Suphi's Packet** as its networking backbone. You need to gra
 1. Get the `MainModule` from the thread above.
 2. Place it at `ReplicatedStorage/Assets/Modules/Shared/Util/MainModule` (the path the `Packets` module requires it from).
 3. The `Packets` module wraps it with the `ServerRemote` / `ReplicateRemote` layer — no changes to the `MainModule` needed.
-
+- Or... Get it from the RBXL file and follow the instructions given there!
 ```lua
 -- Packets.lua (already set up for you)
 local Packet = require(ReplicatedStorage.Assets.Modules.Shared.Util.MainModule)
