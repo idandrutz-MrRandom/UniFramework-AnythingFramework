@@ -480,7 +480,7 @@ UniFramework uses **Suphi's Packet** as its networking backbone. You need to gra
 **Setup:**
 
 1. Get the `MainModule` from the thread above.
-2. Place it at `ReplicatedStorage/Assets/Modules/Shared/Util/MainModule` (the path the `Packets` module requires it from).
+2. Place it at `ReplicatedStorage/Assets/Modules/Shared/Util/MainModule` (the path the `Packets` module requires it from). or anywhere but make sure to link it to the Packets module.
 3. The `Packets` module wraps it with the `ServerRemote` / `ReplicateRemote` layer — no changes to the `MainModule` needed.
 - Or... Get it from the RBXL file and follow the instructions given there!
 ```lua
@@ -490,6 +490,14 @@ local Packet = require(ReplicatedStorage.Assets.Modules.Shared.Util.MainModule)
 
 Without the `MainModule` in place, `Packets` will error on require and nothing will work.
 
+---
+Another quick review:
+
+Prediction --> client starts module, does unsecure client checks --> plays animation --> fires server --> does secure checks, if fails then returns to do correction
+Server Authoritive --> client starts module --> fires to server --> does checks --> plays animations
+
+both work great, prediction is for speed and qol while authoritive is secure and reliable.
+Dont forget to configure the Configuration module to fit your needs.
 ---
 
 ## Credits & issues
