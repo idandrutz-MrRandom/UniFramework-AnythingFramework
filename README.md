@@ -583,7 +583,7 @@ Without the `MainModule` in place, `Packets` will error on require and nothing w
 **Server Authoritative** → client starts module → fires to server → does checks → plays animations.
 
 Both work great — prediction is for speed and QoL, while authoritative is secure and reliable.
-
+Also Dont forget To Require All the modules needed, Take concept from the ServerInit ( just concept )
 Don't forget to configure the `Configuration` module to fit your needs, including the three optimization switches (`HashingEnabled`, `CharacterHashingEnabled`, `LagCompensationEnabled`).
 
 ---
