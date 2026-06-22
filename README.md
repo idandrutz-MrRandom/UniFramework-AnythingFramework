@@ -5,7 +5,7 @@
 > **Get the latest files from the [Releases](../../releases) page** — grab the newest `Packets.lua`, `Configuration.lua`, and the DemoPlace `.rbxl` from there. The Packets module has been significantly optimized since the original version (string hashing, character compression, NPC id mapping, ping compensation) — always pull from Releases rather than copying old snippets out of this README.
 
 ## The Other parts of the system such as The Skills / utilities and The UniHandler / Replicator are up to date, grab them from the Current page and get the new packets and Configuration from the Releases!
-# MainModule in the ExamplePlace is the Packet Networking Library. Its in every demo and if you are planning on grabbing one for yourself, check out Packet networker.
+MainModule in the ExamplePlace is the Packet Networking Library. Its in every demo and if you are planning on grabbing one for yourself, check out Packet networker.
 ---
 
 ## How it works
