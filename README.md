@@ -587,6 +587,14 @@ Don't forget to configure the `Configuration` module to fit your needs, includin
 
 ---
 
+--- 
+# Types of Calls
+| | |
+|---|---|
+|**Fire()** | Fires All clients if run on server or FireServer if from client |
+|**FireCloseClients()** | Used To fire Clients In the Configured Range For optimization |
+|**FireClient()** | Used To Fire a Specific Client |
+
 ## Credits & issues
 
 | | |
