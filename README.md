@@ -2,12 +2,15 @@
 
 **A framework that allows BOTH server authority and validation and Client side prediction with correction!**
 
+> **Get the latest files from the [Releases](../../releases) page** — grab the newest `Packets.lua`, `Configuration.lua`, and the DemoPlace `.rbxl` from there. The Packets module has been significantly optimized since the original version (string hashing, character compression, NPC id mapping, ping compensation) — always pull from Releases rather than copying old snippets out of this README.
+## The Other parts of the system such as The Skills / utilities and The UniHandler / Replicator are up to date, grab them from the Current page and get the new packets and Configuration from the Releases!
+
 ---
 
 ## How it works
 
 ```
-Tool / Trigger → C_Module.Start() → ServerRemote:Fire() → UniHandler (can do extra checks to validate if the call was right ) → S_Module.Activate()
+Tool / Trigger → C_Module.Start() → ServerRemote:Fire() → UniHandler (can do extra checks to validate if the call was right) → S_Module.Activate()
     → validates → ReplicateRemote → nearby clients
                 ↓ (if "Fail" returned)
     UniHandler fires Correction packet → C_Module.Correction()
@@ -24,17 +27,87 @@ Every packet carries a `Params` table:
 
 ```lua
 type Params = {
-    Module:    string?,    -- routes to C_/S_ prefixed modules
-    Utility:   string?,    -- routes to plain utility modules
-    Function:  string,     -- method name to call
-    Character: Character?, -- optional; validated server-side
+    Module:    string?,     -- routes to C_/S_ prefixed modules
+    Utility:   string?,     -- routes to plain utility modules
+    Function:  string,      -- method name to call
+    Character: Character?,  -- optional; validated server-side
+    PingComp:  boolean?,    -- optional; request lag compensation for this call (see below)
 }
+```
+
+And every received `Args` table now carries timing info automatically:
+
+```lua
+type Args = {
+    Character:  Character?,
+    ServerTime: number?,   -- internal; present only when PingComp was requested
+    Lag:        number,    -- seconds of measured latency; 0 if PingComp wasn't requested
+    [any]: any
+}
+```
+
+---
+
+## What changed in the optimized Packets module
+
+The current `Packets.lua` (grab it from Releases) does everything the original version did, plus automatic bandwidth optimization with zero changes required to your skill code. You still write `Module`, `Function`, `Character` exactly the same way — the compression happens transparently inside `Pack`/`Unpack`.
+
+| Optimization | What it does |
+|---|---|
+| **String hashing** | After the first time a given string (Module/Function/Data value) is sent to a recipient, only a small hash number is sent on every later call instead of the full string. |
+| **Combined Module+Function key** | Module and Function are hashed together as one unit instead of two separate slots, since they always travel as a pair. |
+| **Character compression** | `Character` is never sent as a raw Instance. `0` = the recipient's own character, a positive number = another player's `UserId`, a negative number = a small id assigned to an NPC. Two NPCs sharing the same `Name` never collide, since ids are assigned by object identity. |
+| **NPC id teaching** | The very first time a given client sees a specific NPC, the server sends one slightly larger packet that teaches the client the exact id↔NPC mapping. Every call after that for the same NPC is back to a single small number. |
+| **Optional slots** | `Utility` and `PingComp` only take up space on the wire when actually used — a normal `Module`/`Function`/`Character` call is the smallest possible shape. |
+| **Data string compression** | String *values* inside your `Data` table (e.g. `{ Type = "Highlight" }`) go through the same hash cache as everything else. |
+| **Ping compensation** | Set `PingComp = true` on a `Params` table to get `args.Lag` (seconds of measured latency) on the receiving end — useful for compensating animation/hitbox timing against network delay. Omit it and you pay nothing extra. |
+
+### Turning optimizations on/off
+
+All three are switches on `Configuration`, not on `Packets` itself — flip them from anywhere, takes effect immediately, no restart needed:
+
+```lua
+local Config = require(ReplicatedStorage.Assets.Modules.Configuration)
+
+Config.HashingEnabled           = true -- string compression (Module/Function/Data values)
+Config.CharacterHashingEnabled  = true -- character compression (0/UserId/NPC id)
+Config.LagCompensationEnabled   = true -- ServerTime/Lag support for PingComp calls
+```
+
+These are useful for isolating a replication issue — if something behaves strangely, try flipping one off at a time to narrow down which compression path is involved.
+
+### Using ping compensation in a skill
+
+```lua
+-- C_YourSkill — request lag compensation when firing
+Packets.ServerRemote:Fire({
+    Module    = "YourSkill",
+    Function  = "Activate",
+    Character = char,
+    PingComp  = true,
+})
+```
+
+```lua
+-- S_YourSkill — read the measured lag on the receiving end
+module.Activate = function(args: Packets.Args, player: Player?): string?
+    local char = args.Character
+    if not char then return "Fail" end
+
+    local lag = args.Lag -- 0 if PingComp wasn't set on the Fire call
+    task.delay(someDelay - lag, function()
+        -- compensate hitbox/animation timing against the player's latency
+    end)
+
+    return nil
+end
 ```
 
 ---
 
 ## Table of Contents
 
+- [What changed in the optimized Packets module](#what-changed-in-the-optimized-packets-module)
 - [Configuration — registering module paths](#configuration)
 - [Module naming convention](#module-naming-convention)
 - [Adding a new skill — step by step](#adding-a-new-skill)
@@ -72,6 +145,10 @@ table.insert(Configuration.UtilityPaths,
 > **Note:** Add both the server and client folder for every system (e.g. `ServerSkills` + `ClientSkills`, `ServerShopTest` + `ClientShopTest`).
 
 `RemoteDistance` controls how far away clients receive `FireCloseClients` replication (default: `650` studs).
+
+`HashingEnabled`, `CharacterHashingEnabled`, and `LagCompensationEnabled` control the optimizations described above — all default to `true`.
+
+> Get the current `Configuration.lua` (with these fields already present) from **Releases**, then add your own folder paths on top of it. Don't hand-merge an old `Configuration.lua` with a new `Packets.lua` — grab both together.
 
 ---
 
@@ -262,8 +339,9 @@ end)
 ```
 
 ---
-### Remember to always add checks to the UniHandler to ensure that the calls are right, so there wont be situations where a player fires a Skill that he doesnt have access too. ( the bare minimun is to add additional checks)
-## Why i didnt add it? because this is universal, and it wont fit the criterias for everyone. just add your own checks to ensure that the client call is allowed.
+### Remember to always add checks to the UniHandler to ensure that the calls are right, so there wont be situations where a player fires a Skill that he doesn't have access too. (the bare minimum is to add additional checks)
+## Why didn't I add it? Because this is universal, and it won't fit the criteria for everyone. Just add your own checks to ensure the client call is allowed.
+
 ## Predictive vs Non-Predictive mode
 
 ### Predictive mode (default)
@@ -451,6 +529,8 @@ if not player then
 end
 ```
 
+The optimized `Packets.lua` handles NPC character compression automatically — the first time a given client observes a specific NPC, it learns that NPC's id; every replicated call after that for the same NPC costs a single small number instead of a full Instance reference. You don't need to do anything differently in your skill code for this to work.
+
 ---
 
 ## Initialization
@@ -480,9 +560,10 @@ UniFramework uses **Suphi's Packet** as its networking backbone. You need to gra
 **Setup:**
 
 1. Get the `MainModule` from the thread above.
-2. Place it at `ReplicatedStorage/Assets/Modules/Shared/Util/MainModule` (the path the `Packets` module requires it from). or anywhere but make sure to link it to the Packets module.
-3. The `Packets` module wraps it with the `ServerRemote` / `ReplicateRemote` layer — no changes to the `MainModule` needed.
-- Or... Get it from the RBXL file and follow the instructions given there!
+2. Place it at `ReplicatedStorage/Assets/Modules/Shared/Util/MainModule` (the path the `Packets` module requires it from), or anywhere — just make sure to link it to the `Packets` module.
+3. The `Packets` module wraps it with the `ServerRemote` / `ReplicateRemote` layer, plus the hashing/compression/lag-compensation optimizations described above — no changes to `MainModule` needed.
+4. Or get it from the DemoPlace `.rbxl` in **Releases** and follow the instructions included there.
+
 ```lua
 -- Packets.lua (already set up for you)
 local Packet = require(ReplicatedStorage.Assets.Modules.Shared.Util.MainModule)
@@ -490,14 +571,20 @@ local Packet = require(ReplicatedStorage.Assets.Modules.Shared.Util.MainModule)
 
 Without the `MainModule` in place, `Packets` will error on require and nothing will work.
 
+> **Grab the DemoPlace and the latest optimized `Packets.lua` / `Configuration.lua` together from the [Releases](../../releases) page.** Mixing an old `Packets.lua` with a new `Configuration.lua` (or vice versa) will break — `Packets.lua` expects `Config.HashingEnabled`, `Config.CharacterHashingEnabled`, and `Config.LagCompensationEnabled` to exist on whatever `Configuration` module it requires.
+
 ---
-Another quick review:
 
-Prediction --> client starts module, does unsecure client checks --> plays animation --> fires server --> does secure checks, if fails then returns to do correction
-Server Authoritive --> client starts module --> fires to server --> does checks --> plays animations
+## Quick review
 
-both work great, prediction is for speed and qol while authoritive is secure and reliable.
-Dont forget to configure the Configuration module to fit your needs.
+**Prediction** → client starts module, does unsecure client checks → plays animation → fires server → does secure checks, if fails then does correction.
+
+**Server Authoritative** → client starts module → fires to server → does checks → plays animations.
+
+Both work great — prediction is for speed and QoL, while authoritative is secure and reliable.
+
+Don't forget to configure the `Configuration` module to fit your needs, including the three optimization switches (`HashingEnabled`, `CharacterHashingEnabled`, `LagCompensationEnabled`).
+
 ---
 
 ## Credits & issues
@@ -506,6 +593,9 @@ Dont forget to configure the Configuration module to fit your needs.
 |---|---|
 | **Packet networking library** | [Suphi](https://devforum.roblox.com/t/packet-networking-library/3573907) |
 | **UniFramework** | idan4k |
-| *Tutorial for punch setup https://youtu.be/DIh3fUclDyg*
-| *Tutorial For new skill Setup ( in works )
+| **Tutorial for punch setup** | https://youtu.be/DIh3fUclDyg |
+| **Tutorial for new skill setup** | (in works) |
+
 Found a bug or have a question? Report issues to **idan4k**.
+
+> Latest builds, the DemoPlace, and the current optimized `Packets.lua` + `Configuration.lua` are always in **[Releases](../../releases)** — this README documents the framework's concepts and usage patterns, but the actual Packets And Configuration should come from there.
